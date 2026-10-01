@@ -40,14 +40,49 @@ Then store the connection string in user-secrets (never committed to the repo):
 dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=delightsboutique_dev;Username=delightsboutique_app;Password=<password>" --project src/DelightsBoutique.Api
 ```
 
+## Migrations (Phase 1+)
+
+Migrations need DDL privileges the app's own low-privilege role doesn't have, so they run
+against a separate, elevated connection string read from an environment variable — never
+from `appsettings.json` or user-secrets:
+
+```powershell
+$env:DB_MIGRATION_CONNECTION = "Host=localhost;Port=5432;Database=delightsboutique_dev;Username=postgres;Password=<superuser password>"
+dotnet ef migrations add <Name> --project src/DelightsBoutique.Infrastructure --startup-project src/DelightsBoutique.Api --output-dir Persistence/Migrations
+dotnet ef database update --project src/DelightsBoutique.Infrastructure --startup-project src/DelightsBoutique.Api
+```
+
+(On this machine specifically, prepend `$env:LOCALAPPDATA\Microsoft\dotnet` to `PATH` first,
+same caveat as above — `dotnet ef` shells out to `dotnet msbuild` via PATH internally, so
+even an explicit full path to the outer `dotnet` call isn't enough on its own.)
+
+## Email (OTP login)
+
+OTP codes are sent via [Resend](https://resend.com). Store the API key in user-secrets:
+
+```powershell
+dotnet user-secrets set "Resend:ApiKey" "<your key>" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Resend:FromAddress" "onboarding@resend.dev" --project src/DelightsBoutique.Api
+```
+
+**Known Development limitation:** until a real domain is verified in Resend, the sandbox
+sender (`onboarding@resend.dev`) can only deliver to the Resend account's *own* verified
+email address — not to an arbitrary seeded owner/staff email. Logging in with an account
+whose email doesn't match will fail at the email-send step with a 500. A longer-term switch
+to Gmail SMTP as the email provider has been decided but is **not yet implemented** — see
+the comment at the `IResend`/`ResendOtpEmailSender` registration in `Program.cs`.
+
 ## Running
 
 ```powershell
-dotnet run --project src/DelightsBoutique.Api
+dotnet run --project src/DelightsBoutique.Api --launch-profile https
 ```
 
 Swagger UI is available at `/swagger` in Development. `GET /api/health` returns `{ "ok": true }`
-and currently does not check DB connectivity — that's added once `AppDbContext` exists (Phase 1).
+and does not check DB connectivity yet. On first run in Development, a single `OwnerProfile`
+is seeded automatically if none exists — the generated one-time password is printed once to
+the console log (`grep` for "Seeded OwnerProfile"); it is not recoverable afterward short of
+deleting the row and restarting.
 
 ## Running with Docker Compose
 
@@ -62,7 +97,7 @@ day-to-day local development if Postgres is already installed locally.
 
 ```powershell
 dotnet test tests/DelightsBoutique.UnitTests
-dotnet test tests/DelightsBoutique.IntegrationTests   # requires Docker (Testcontainers)
+dotnet test tests/DelightsBoutique.IntegrationTests   # requires Docker (Testcontainers) — not yet installed on this machine; runs in CI
 ```
 
 ## Solution layout
