@@ -15,4 +15,17 @@ public class StaffMember
     public DateTime UpdatedAt { get; private set; }
 
     protected StaffMember() { }
+
+    /// <summary>Test-support only, until Phase 4's real staff-creation handler exists.</summary>
+    internal static StaffMember ForTesting(string email, string passwordHash, bool active, List<Permission>? permissions = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = "Test Staff",
+        Email = email,
+        Permissions = permissions ?? [],
+        Active = active,
+        PasswordHash = passwordHash,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
 }

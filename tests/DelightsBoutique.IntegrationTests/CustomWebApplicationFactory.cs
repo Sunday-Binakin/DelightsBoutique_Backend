@@ -1,0 +1,73 @@
+using DelightsBoutique.Application.Abstractions;
+using DelightsBoutique.Application.Common;
+using DelightsBoutique.Domain.Entities;
+using DelightsBoutique.Domain.Enums;
+using DelightsBoutique.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Testcontainers.PostgreSql;
+
+namespace DelightsBoutique.IntegrationTests;
+
+public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    public const string OwnerEmail = "owner@test.local";
+    public const string ActiveStaffEmail = "staff-active@test.local";
+    public const string DeactivatedStaffEmail = "staff-deactivated@test.local";
+    public const string KnownPassword = "Password123!";
+
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
+
+    public FakeOtpEmailSender OtpEmailSender { get; } = new();
+    public FakeClock Clock { get; } = new();
+
+    public async Task InitializeAsync()
+    {
+        await _postgres.StartAsync();
+
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        var passwordHash = hasher.Hash(KnownPassword);
+
+        db.OwnerProfiles.Add(OwnerProfile.Create("Test Owner", OwnerEmail, null, passwordHash));
+        db.StaffMembers.Add(StaffMember.ForTesting(ActiveStaffEmail, passwordHash, active: true, [Permission.ManageOrders]));
+        db.StaffMembers.Add(StaffMember.ForTesting(DeactivatedStaffEmail, passwordHash, active: false, [Permission.ManageOrders]));
+        await db.SaveChangesAsync();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing"); // so the Development-only OwnerSeeder does NOT run
+
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = _postgres.GetConnectionString(),
+                ["Resend:ApiKey"] = "unused-in-tests"
+            });
+        });
+
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IOtpEmailSender>();
+            services.AddSingleton<IOtpEmailSender>(OtpEmailSender);
+
+            services.RemoveAll<IClock>();
+            services.AddSingleton<IClock>(Clock);
+        });
+    }
+
+    public new async Task DisposeAsync()
+    {
+        await _postgres.StopAsync();
+        await base.DisposeAsync();
+    }
+}
