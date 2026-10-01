@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Unit tests
+        run: dotnet test tests/DelightsBoutique.UnitTests --no-build --configuration Release --logger "trx;LogFileName=unit-tests.trx"
+
+      # Integration tests spin up a real Postgres via Testcontainers; ubuntu-latest
+      # runners have Docker available by default, so no service container is needed.
+      - name: Integration tests
+        run: dotnet test tests/DelightsBoutique.IntegrationTests --no-build --configuration Release --logger "trx;LogFileName=integration-tests.trx"
+
+      - name: Publish test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/*.trx"
+
+      # Generates the current OpenAPI document as a build artifact. Diffing this
+      # against BUILD_SPEC.md's endpoint tables is currently a manual review step —
+      # automating that diff is tracked as future CI work, not implemented yet.
+      - name: Generate OpenAPI document
+        run: |
+          dotnet tool install --global Swashbuckle.AspNetCore.Cli --version 6.6.2
+          dotnet swagger tofile --output ./openapi/swagger.json src/DelightsBoutique.Api/bin/Release/net8.0/DelightsBoutique.Api.dll v1
+      - name: Upload OpenAPI document
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi/swagger.json
