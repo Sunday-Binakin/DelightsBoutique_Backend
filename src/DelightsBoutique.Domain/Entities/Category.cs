@@ -15,7 +15,7 @@ public class Category
 
     protected Category() { }
 
-    /// <summary>Test-support only, until Phase 2's real Category creation handler exists.</summary>
+    /// <summary>Test-support only.</summary>
     internal static Category ForTesting(string slug) => new()
     {
         Id = Guid.NewGuid(),
@@ -24,6 +24,34 @@ public class Category
         CreatedAt = DateTime.UtcNow,
         UpdatedAt = DateTime.UtcNow
     };
+
+    public static Category Create(string slug, string name, Tone tone, string? imageUrl = null)
+    {
+        var now = DateTime.UtcNow;
+        return new Category
+        {
+            Id = Guid.NewGuid(),
+            Slug = slug,
+            Name = name,
+            Tone = tone,
+            ImageUrl = imageUrl,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+    }
+
+    /// <summary>
+    /// "new value, or null = leave unchanged" — including <see cref="ImageUrl"/>, which is
+    /// itself nullable. A PATCH cannot explicitly clear an already-set ImageUrl back to null
+    /// this phase — an accepted limitation, not an oversight.
+    /// </summary>
+    public void Update(string? name = null, Tone? tone = null, string? imageUrl = null)
+    {
+        Name = name ?? Name;
+        Tone = tone ?? Tone;
+        ImageUrl = imageUrl ?? ImageUrl;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     /// <summary>
     /// The "is referenced" check is a DB query, so the caller (an Application handler)

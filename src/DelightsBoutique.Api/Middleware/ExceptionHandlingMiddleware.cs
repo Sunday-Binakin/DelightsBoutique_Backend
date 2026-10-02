@@ -1,11 +1,12 @@
+using DelightsBoutique.Domain.Exceptions;
 using FluentValidation;
 
 namespace DelightsBoutique.Api.Middleware;
 
 /// <summary>
-/// Minimal for this phase — grows as more domain exceptions are added in later phases.
-/// Needed now because Phase 1's own live endpoints throw FluentValidation's
-/// ValidationException via the ValidationBehavior pipeline.
+/// Grows as more domain exceptions are added in later phases. Validation was needed from
+/// Phase 1's own live endpoints; CategoryInUseException/DuplicateSlugException are Phase 2's
+/// first real callers of those exception types.
 /// </summary>
 public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
 {
@@ -24,6 +25,16 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             {
                 error = new { code = "VALIDATION_ERROR", message = "One or more fields are invalid.", fields }
             });
+        }
+        catch (CategoryInUseException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(new { error = new { code = "CONFLICT", message = ex.Message } });
+        }
+        catch (DuplicateSlugException ex)
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(new { error = new { code = "CONFLICT", message = ex.Message } });
         }
         catch (Exception ex)
         {

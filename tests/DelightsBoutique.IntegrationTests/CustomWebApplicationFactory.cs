@@ -18,6 +18,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     public const string OwnerEmail = "owner@test.local";
     public const string ActiveStaffEmail = "staff-active@test.local";
     public const string DeactivatedStaffEmail = "staff-deactivated@test.local";
+    public const string ManageProductsStaffEmail = "staff-manage-products@test.local";
+    public const string ManageContentStaffEmail = "staff-manage-content@test.local";
     public const string KnownPassword = "Password123!";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
@@ -32,6 +34,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync();
+        await ContentSeeder.SeedAsync(scope.ServiceProvider); // mirrors Program.cs's own seeding, after migration
 
         var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
         var passwordHash = hasher.Hash(KnownPassword);
@@ -39,6 +42,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         db.OwnerProfiles.Add(OwnerProfile.Create("Test Owner", OwnerEmail, null, passwordHash));
         db.StaffMembers.Add(StaffMember.ForTesting(ActiveStaffEmail, passwordHash, active: true, [Permission.ManageOrders]));
         db.StaffMembers.Add(StaffMember.ForTesting(DeactivatedStaffEmail, passwordHash, active: false, [Permission.ManageOrders]));
+        db.StaffMembers.Add(StaffMember.ForTesting(ManageProductsStaffEmail, passwordHash, active: true, [Permission.ManageProducts]));
+        db.StaffMembers.Add(StaffMember.ForTesting(ManageContentStaffEmail, passwordHash, active: true, [Permission.ManageContent]));
         await db.SaveChangesAsync();
     }
 

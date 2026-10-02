@@ -15,6 +15,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Resend;
 using Serilog;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Log = Serilog.Log;
 
 Log.Logger = new LoggerConfiguration()
@@ -28,7 +30,9 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Services(services)
     .Enrich.FromLogContext());
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -51,11 +55,19 @@ builder.Services.AddDbContext<AppDbContext>(options => options
 
 builder.Services.AddScoped<IOwnerProfileRepository, EfOwnerProfileRepository>();
 builder.Services.AddScoped<IStaffRepository, EfStaffRepository>();
+builder.Services.AddScoped<IProductRepository, EfProductRepository>();
+builder.Services.AddScoped<ICategoryRepository, EfCategoryRepository>();
+builder.Services.AddScoped<ISiteContentRepository, EfSiteContentRepository>();
+builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
 
-// --- MediatR + validation pipeline ---
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+
+// --- MediatR + validation/audit pipeline ---
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(LoginCommand).Assembly));
 builder.Services.AddValidatorsFromAssembly(typeof(LoginCommand).Assembly);
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(AuditLoggingBehavior<,>));
 
 // --- Auth infrastructure ---
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -107,6 +119,16 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// Runs in every real environment — the storefront needs non-null content to function at
+// all. Skipped under "Testing" because CustomWebApplicationFactory builds the host (running
+// this) BEFORE it runs migrations, so the site_content table wouldn't exist yet; that test
+// harness seeds content itself, after migrating, in CustomWebApplicationFactory.InitializeAsync().
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    using var contentSeedScope = app.Services.CreateScope();
+    await ContentSeeder.SeedAsync(contentSeedScope.ServiceProvider);
+}
 
 if (app.Environment.IsDevelopment())
 {

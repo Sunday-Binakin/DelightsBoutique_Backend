@@ -37,6 +37,23 @@ public class AuthTestClient(HttpClient client)
         return response;
     }
 
+    public Task<HttpResponseMessage> PatchAsync(string url, object? body = null) => SendAsync(HttpMethod.Patch, url, body);
+    public Task<HttpResponseMessage> PutAsync(string url, object? body = null) => SendAsync(HttpMethod.Put, url, body);
+    public Task<HttpResponseMessage> DeleteAsync(string url) => SendAsync(HttpMethod.Delete, url, null);
+
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body)
+    {
+        var request = new HttpRequestMessage(method, url);
+        if (body is not null)
+            request.Content = JsonContent(body);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        AttachCookie(request);
+
+        var response = await client.SendAsync(request);
+        CaptureCookie(response);
+        return response;
+    }
+
     public void ClearSession() => _sessionCookie = null;
 
     private void AttachCookie(HttpRequestMessage request)

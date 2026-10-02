@@ -14,4 +14,13 @@ public class SiteContent
     public string ValueJson { get; private set; } = default!;
 
     protected SiteContent() { }
+
+    public static SiteContent Create(SiteContentKey key, string valueJson) => new()
+    {
+        Id = Guid.NewGuid(),
+        Key = key,
+        ValueJson = valueJson
+    };
+
+    public void UpdateValue(string valueJson) => ValueJson = valueJson;
 }
