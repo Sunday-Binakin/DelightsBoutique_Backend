@@ -24,6 +24,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
 
+    // Explicit absolute temp path — WebApplicationFactory's ambient content-root resolves
+    // relative to the test assembly's output location, not the Api project, so relying on
+    // a relative default would be fragile. Unique per factory instance for test isolation.
+    private readonly string _fileStorageRoot = Path.Combine(Path.GetTempPath(), "delights-uploads-" + Guid.NewGuid().ToString("N"));
+
     public FakeOtpEmailSender OtpEmailSender { get; } = new();
     public FakeClock Clock { get; } = new();
 
@@ -56,7 +61,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = _postgres.GetConnectionString(),
-                ["Resend:ApiKey"] = "unused-in-tests"
+                ["Resend:ApiKey"] = "unused-in-tests",
+                ["FileStorage:RootPath"] = _fileStorageRoot,
+                ["FileStorage:PublicBaseUrl"] = "https://testserver"
             });
         });
 
@@ -73,6 +80,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     public new async Task DisposeAsync()
     {
         await _postgres.StopAsync();
+        if (Directory.Exists(_fileStorageRoot))
+            Directory.Delete(_fileStorageRoot, recursive: true);
         await base.DisposeAsync();
     }
 }

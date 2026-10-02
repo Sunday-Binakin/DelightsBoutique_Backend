@@ -14,4 +14,14 @@ public class OrderNotification
     public bool Read { get; private set; }
 
     protected OrderNotification() { }
+
+    public static OrderNotification Create(string orderId, string customerName, decimal subtotal) => new()
+    {
+        Id = Guid.NewGuid(),
+        OrderId = orderId,
+        CustomerName = customerName,
+        Subtotal = subtotal,
+        CreatedAt = DateTime.UtcNow,
+        Read = false
+    };
 }

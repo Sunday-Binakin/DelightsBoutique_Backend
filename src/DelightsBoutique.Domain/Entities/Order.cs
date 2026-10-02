@@ -1,5 +1,6 @@
 using DelightsBoutique.Domain.Enums;
 using DelightsBoutique.Domain.Exceptions;
+using DelightsBoutique.Domain.ValueObjects;
 
 namespace DelightsBoutique.Domain.Entities;
 
@@ -25,7 +26,38 @@ public class Order
 
     protected Order() { }
 
-    // Order.Create(...) — checkout flow, built in Phase 3. Nothing calls this yet.
+    public static Order Create(
+        string id, IReadOnlyList<OrderLineInput> lines, string customerName, string normalizedPhone,
+        FulfillmentType fulfillment, string? address, PaymentMethod paymentMethod, string? notes)
+    {
+        if (lines.Count == 0)
+            throw new ArgumentException("An order must have at least one line.", nameof(lines)); // defensive last resort — the real 400 comes from CreateOrderCommandValidator
+
+        var order = new Order
+        {
+            Id = id,
+            CreatedAt = DateTime.UtcNow,
+            Status = OrderStatus.PendingConfirmation,
+            CustomerName = customerName,
+            Phone = normalizedPhone, // caller passes the already-normalized phone — Order never normalizes
+            Fulfillment = fulfillment,
+            Address = address,
+            PaymentMethod = paymentMethod,
+            Notes = notes,
+            Subtotal = lines.Sum(l => l.Quantity * l.UnitPrice)
+        };
+
+        order.Items = lines.Select(l => OrderItem.Create(order.Id, l.Slug, l.Name, l.Quantity, l.UnitPrice, l.Size, l.Color)).ToList();
+        return order;
+    }
+
+    public void SetPaymentProofUrl(string url)
+    {
+        if (Status != OrderStatus.PendingConfirmation)
+            throw new PaymentProofNotAllowedException(Id, Status);
+
+        PaymentProofUrl = url;
+    }
 
     /// <summary>
     /// Test-support only: constructs an Order in an arbitrary state so

@@ -3,20 +3,26 @@ using DelightsBoutique.Api.Middleware;
 using DelightsBoutique.Application.Abstractions;
 using DelightsBoutique.Application.Auth.Commands;
 using DelightsBoutique.Application.Common;
+using DelightsBoutique.Application.Orders.Services;
+using DelightsBoutique.Domain.Interfaces;
 using DelightsBoutique.Infrastructure;
 using DelightsBoutique.Infrastructure.Auth;
+using DelightsBoutique.Infrastructure.Idempotency;
 using DelightsBoutique.Infrastructure.Persistence;
 using DelightsBoutique.Infrastructure.Persistence.Repositories;
+using DelightsBoutique.Infrastructure.Storage;
 using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Resend;
 using Serilog;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Log = Serilog.Log;
 
 Log.Logger = new LoggerConfiguration()
@@ -59,13 +65,29 @@ builder.Services.AddScoped<IProductRepository, EfProductRepository>();
 builder.Services.AddScoped<ICategoryRepository, EfCategoryRepository>();
 builder.Services.AddScoped<ISiteContentRepository, EfSiteContentRepository>();
 builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
+builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
+builder.Services.AddScoped<ICustomerFlagRepository, EfCustomerFlagRepository>();
+builder.Services.AddScoped<IOrderNotificationRepository, EfOrderNotificationRepository>();
+builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 
-// --- MediatR + validation/audit pipeline ---
+// --- Order-domain services ---
+builder.Services.AddSingleton<IPhoneNormalizer, PhoneNormalizer>();
+builder.Services.AddSingleton<IOrderIdGenerator, OrderIdGenerator>();
+builder.Services.AddSingleton<IOrderPricingService, OrderPricingService>(); // stateless, safe as singleton
+builder.Services.AddScoped<IImageValidator, ImageSharpImageValidator>();
+builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
+
+// --- MediatR + idempotency/validation/audit pipeline ---
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(LoginCommand).Assembly));
 builder.Services.AddValidatorsFromAssembly(typeof(LoginCommand).Assembly);
+// IdempotencyBehavior registered FIRST (outermost) — same key + different body must 409
+// regardless of whether the body would even pass validation; same key + same body must
+// replay the cached response without re-running validation or the handler at all.
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(IdempotencyBehavior<,>));
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(AuditLoggingBehavior<,>));
 
@@ -115,6 +137,19 @@ builder.Services.AddRateLimiter(options =>
         o.Window = TimeSpan.FromMinutes(1);
         o.PermitLimit = 3;
     });
+
+    // Orders endpoints — BUILD_SPEC explicitly says "rate-limited by IP," unlike the
+    // global, non-partitioned auth-* policies above, so these use real per-IP partitioning.
+    options.AddPolicy("order-create", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 10 }));
+    options.AddPolicy("order-track", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 20 }));
+    options.AddPolicy("order-payment-proof", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 10 }));
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -139,9 +174,24 @@ if (app.Environment.IsDevelopment())
     await OwnerSeeder.SeedAsync(scope.ServiceProvider);
 }
 
+var configuredFileStorageRoot = app.Configuration["FileStorage:RootPath"] ?? Path.Combine("App_Data", "uploads");
+var fileStorageRoot = Path.IsPathRooted(configuredFileStorageRoot)
+    ? configuredFileStorageRoot
+    : Path.Combine(app.Environment.ContentRootPath, configuredFileStorageRoot); // PhysicalFileProvider below requires an absolute path
+Directory.CreateDirectory(fileStorageRoot); // first-boot safety, dev/CI included
+
 app.UseSerilogRequestLogging();
 app.UseHttpsRedirection();
 app.UseCors("Storefront");
+// Served files are public-by-design artifacts (same trust model as the opaque-id-as-
+// access-token GET /api/orders/:id) — this only short-circuits on an actual /files/...
+// match, so it can't swallow any existing API route; placed before auth/CSRF/rate
+// limiting deliberately, not by oversight.
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(fileStorageRoot),
+    RequestPath = "/files"
+});
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseRateLimiter();
 app.UseMiddleware<CsrfHeaderMiddleware>();

@@ -16,4 +16,18 @@ public class OrderItem
     public string? Color { get; private set; }
 
     protected OrderItem() { }
+
+    /// <summary>Only ever called from Order.Create, same assembly — Application never
+    /// constructs an OrderItem directly, keeping the aggregate boundary tight.</summary>
+    internal static OrderItem Create(string orderId, string slug, string name, int quantity, decimal unitPrice, string? size, string? color) => new()
+    {
+        Id = Guid.NewGuid(),
+        OrderId = orderId,
+        Slug = slug,
+        Name = name,
+        Quantity = quantity,
+        UnitPrice = unitPrice,
+        Size = size,
+        Color = color
+    };
 }

@@ -8,7 +8,11 @@ public class IdempotencyKeyConfiguration : IEntityTypeConfiguration<IdempotencyK
     public void Configure(EntityTypeBuilder<IdempotencyKey> builder)
     {
         builder.HasKey(k => k.Id);
-        builder.HasIndex(k => new { k.Key, k.Endpoint });
+        // Unique, not just indexed: a non-unique index doesn't stop two genuinely
+        // concurrent fresh requests (same brand-new key, e.g. a double-click across two
+        // tabs) from both passing the "not found" check and both inserting — defeating
+        // idempotency's actual purpose under real concurrency.
+        builder.HasIndex(k => new { k.Key, k.Endpoint }).IsUnique();
         builder.HasIndex(k => k.CreatedAt);
     }
 }

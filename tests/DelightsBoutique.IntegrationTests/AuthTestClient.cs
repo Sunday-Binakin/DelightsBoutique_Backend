@@ -14,11 +14,30 @@ public class AuthTestClient(HttpClient client)
 
     public HttpClient Client => client;
 
-    public async Task<HttpResponseMessage> PostAsync(string url, object? body = null)
+    public async Task<HttpResponseMessage> PostAsync(string url, object? body = null, IDictionary<string, string>? extraHeaders = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, url);
         if (body is not null)
             request.Content = JsonContent(body);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        if (extraHeaders is not null)
+            foreach (var (key, value) in extraHeaders)
+                request.Headers.Add(key, value);
+        AttachCookie(request);
+
+        var response = await client.SendAsync(request);
+        CaptureCookie(response);
+        return response;
+    }
+
+    public async Task<HttpResponseMessage> PostMultipartAsync(string url, byte[] fileBytes, string fieldName = "file", string fileName = "proof.png")
+    {
+        var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(fileBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(fileContent, fieldName, fileName);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
         request.Headers.Add("X-Requested-With", "XMLHttpRequest");
         AttachCookie(request);
 

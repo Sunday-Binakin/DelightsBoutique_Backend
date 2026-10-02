@@ -25,6 +25,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DelightsBoutique.Domain\DelightsBoutique.Domain.csproj" />
     <ProjectReference Include="..\..\src\DelightsBoutique.Application\DelightsBoutique.Application.csproj" />
+    <!-- Deliberate, scoped exception to the Domain+Application-only convention: PhoneNormalizer
+         and OrderIdGenerator live in Infrastructure (per the SystemClock precedent for
+         "Application interface, Infrastructure implementation" pairs), but are provably
+         I/O-free, so they're unit-tested here rather than only in the Docker-dependent
+         integration suite. -->
+    <ProjectReference Include="..\..\src\DelightsBoutique.Infrastructure\DelightsBoutique.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

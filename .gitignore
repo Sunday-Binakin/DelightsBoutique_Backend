@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local disk file storage (payment-proof uploads etc.) — runtime data, never committed
+src/DelightsBoutique.Api/App_Data/

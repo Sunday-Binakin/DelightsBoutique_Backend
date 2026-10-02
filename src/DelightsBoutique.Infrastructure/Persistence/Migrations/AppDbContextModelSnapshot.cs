@@ -18,7 +18,7 @@ namespace DelightsBoutique.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.31")
+                .HasAnnotation("ProductVersion", "8.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -593,6 +593,7 @@ namespace DelightsBoutique.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_idempotency_keys_created_at");
 
                     b.HasIndex("Key", "Endpoint")
+                        .IsUnique()
                         .HasDatabaseName("ix_idempotency_keys_key_endpoint");
 
                     b.ToTable("idempotency_keys", (string)null);
