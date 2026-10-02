@@ -38,6 +38,16 @@ public class AdminStaffControllerTests(CustomWebApplicationFactory factory) : IC
     }
 
     [Fact]
+    public async Task List_AsNonOwnerStaffWithManageStaffPermission_Succeeds()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageStaffAndAuditStaffEmail);
+
+        var response = await client.GetAsync("/api/admin/staff");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Create_MissingIdempotencyKey_Returns400()
     {
         var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.OwnerEmail);

@@ -1,5 +1,6 @@
 using DelightsBoutique.Api.Filters;
 using DelightsBoutique.Application.Audit.Queries;
+using DelightsBoutique.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,7 +8,7 @@ namespace DelightsBoutique.Api.Controllers;
 
 [ApiController]
 [Route("api/admin/audit-log")]
-[RequireOwner]
+[RequirePermission(Permission.ViewAuditLog)] // Owner still passes everything — PermissionAuthorizationHandler succeeds on the Owner claim before checking any specific permission
 public class AdminAuditLogController(IMediator mediator) : ControllerBase
 {
     [HttpGet]
