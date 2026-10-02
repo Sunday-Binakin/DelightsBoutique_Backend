@@ -18,7 +18,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
-using Resend;
 using Serilog;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -95,15 +94,7 @@ builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(AuditLoggingB
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IOtpChallengeStore, EfOtpChallengeStore>();
-builder.Services.AddScoped<IOtpEmailSender, ResendOtpEmailSender>();
-builder.Services.AddSingleton<IResend>(_ => ResendClient.Create(builder.Configuration["Resend:ApiKey"]!));
-// KNOWN LIMITATION (Development only): Resend's sandbox "from" address
-// (onboarding@resend.dev, used until a real domain is verified) can only deliver to
-// the Resend account's own verified email — not to the seeded OwnerProfile's email
-// unless they happen to match. Real OTP delivery in Development needs either a
-// verified Resend domain or a provider swap (Gmail SMTP decided as the longer-term
-// direction — not yet implemented). Until then, logins against the seeded owner will
-// fail at the email-send step with a 500, same as any other outbound-delivery outage.
+builder.Services.AddScoped<IOtpEmailSender, GmailSmtpOtpEmailSender>();
 
 // --- Cookie authentication ---
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
