@@ -170,15 +170,19 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var contentSeedScope = app.Services.CreateScope();
     await ContentSeeder.SeedAsync(contentSeedScope.ServiceProvider);
+
+    // Runs in every real environment, not just Development — a fresh Staging/Production
+    // database needs its first owner account the same way. Idempotent (no-op once an
+    // owner exists) and self-skips if Owner:Email isn't configured yet, so it's safe to
+    // leave running unconditionally rather than re-gating per environment.
+    using var ownerSeedScope = app.Services.CreateScope();
+    await OwnerSeeder.SeedAsync(ownerSeedScope.ServiceProvider);
 }
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-
-    using var scope = app.Services.CreateScope();
-    await OwnerSeeder.SeedAsync(scope.ServiceProvider);
 }
 
 var configuredFileStorageRoot = app.Configuration["FileStorage:RootPath"] ?? Path.Combine("App_Data", "uploads");
