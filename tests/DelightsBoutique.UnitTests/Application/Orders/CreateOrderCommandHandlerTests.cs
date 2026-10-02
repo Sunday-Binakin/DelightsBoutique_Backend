@@ -20,10 +20,20 @@ public class CreateOrderCommandHandlerTests
     private readonly Mock<IOrderPricingService> _pricing = new();
     private readonly Mock<IOrderRepository> _orders = new();
     private readonly Mock<IOrderNotificationRepository> _notifications = new();
+    private readonly Mock<ISiteContentRepository> _siteContent = new();
+    private readonly Mock<INotificationQueue> _notificationQueue = new();
 
-    private CreateOrderCommandHandler CreateHandler() => new(
-        _products.Object, _customerFlags.Object, _phoneNormalizer.Object,
-        _orderIdGenerator.Object, _pricing.Object, _orders.Object, _notifications.Object);
+    private CreateOrderCommandHandler CreateHandler()
+    {
+        // Short-circuits EnqueueAdminAlertAsync's early-return path — these tests aren't
+        // about the admin-alert notification, just checkout itself.
+        _siteContent.Setup(s => s.GetValueJsonAsync(It.IsAny<SiteContentKey>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+
+        return new CreateOrderCommandHandler(
+            _products.Object, _customerFlags.Object, _phoneNormalizer.Object,
+            _orderIdGenerator.Object, _pricing.Object, _orders.Object, _notifications.Object,
+            _siteContent.Object, _notificationQueue.Object);
+    }
 
     private static CreateOrderCommand Command(params OrderLineRequest[] items) => new(
         "idem-key", [.. items], "Jane Doe", "0241234567",

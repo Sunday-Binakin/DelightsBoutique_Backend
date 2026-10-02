@@ -20,6 +20,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     public const string DeactivatedStaffEmail = "staff-deactivated@test.local";
     public const string ManageProductsStaffEmail = "staff-manage-products@test.local";
     public const string ManageContentStaffEmail = "staff-manage-content@test.local";
+    public const string ManageCustomersStaffEmail = "staff-manage-customers@test.local";
     public const string KnownPassword = "Password123!";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
@@ -49,6 +50,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         db.StaffMembers.Add(StaffMember.ForTesting(DeactivatedStaffEmail, passwordHash, active: false, [Permission.ManageOrders]));
         db.StaffMembers.Add(StaffMember.ForTesting(ManageProductsStaffEmail, passwordHash, active: true, [Permission.ManageProducts]));
         db.StaffMembers.Add(StaffMember.ForTesting(ManageContentStaffEmail, passwordHash, active: true, [Permission.ManageContent]));
+        db.StaffMembers.Add(StaffMember.ForTesting(ManageCustomersStaffEmail, passwordHash, active: true, [Permission.ManageCustomers]));
         await db.SaveChangesAsync();
     }
 
@@ -61,7 +63,6 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = _postgres.GetConnectionString(),
-                ["Resend:ApiKey"] = "unused-in-tests",
                 ["FileStorage:RootPath"] = _fileStorageRoot,
                 ["FileStorage:PublicBaseUrl"] = "https://testserver"
             });

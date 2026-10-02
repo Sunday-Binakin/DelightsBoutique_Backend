@@ -8,8 +8,10 @@ using DelightsBoutique.Domain.Interfaces;
 using DelightsBoutique.Infrastructure;
 using DelightsBoutique.Infrastructure.Auth;
 using DelightsBoutique.Infrastructure.Idempotency;
+using DelightsBoutique.Infrastructure.Notifications;
 using DelightsBoutique.Infrastructure.Persistence;
 using DelightsBoutique.Infrastructure.Persistence.Repositories;
+using DelightsBoutique.Infrastructure.Products;
 using DelightsBoutique.Infrastructure.Storage;
 using FluentValidation;
 using MediatR;
@@ -66,9 +68,11 @@ builder.Services.AddScoped<ISiteContentRepository, EfSiteContentRepository>();
 builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
 builder.Services.AddScoped<ICustomerFlagRepository, EfCustomerFlagRepository>();
+builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<IOrderNotificationRepository, EfOrderNotificationRepository>();
 builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+builder.Services.AddScoped<IProductCsvParser, ProductCsvParser>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
@@ -93,8 +97,18 @@ builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(AuditLoggingB
 // --- Auth infrastructure ---
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
+builder.Services.AddSingleton<IPasswordGenerator, PasswordGenerator>();
 builder.Services.AddScoped<IOtpChallengeStore, EfOtpChallengeStore>();
 builder.Services.AddScoped<IOtpEmailSender, GmailSmtpOtpEmailSender>();
+
+// --- Notifications: composite email+WhatsApp, delivered via a background queue so a slow
+// provider never adds latency to the request that triggered the notification. ---
+builder.Services.AddScoped<INotificationChannel, EmailNotificationSender>();
+builder.Services.AddScoped<INotificationChannel, NoopWhatsAppNotificationSender>(); // swap for a real WhatsApp provider later — no other code changes needed
+builder.Services.AddScoped<INotificationSender, CompositeNotificationSender>();
+builder.Services.AddSingleton<NotificationQueue>();
+builder.Services.AddSingleton<INotificationQueue>(sp => sp.GetRequiredService<NotificationQueue>());
+builder.Services.AddHostedService<NotificationQueueProcessor>();
 
 // --- Cookie authentication ---
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -112,7 +126,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+    options.AddPolicy("OwnerOnly", p => p.RequireClaim("role", "Owner")));
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 // --- Rate limiting ---

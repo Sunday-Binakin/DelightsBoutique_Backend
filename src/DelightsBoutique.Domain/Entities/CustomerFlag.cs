@@ -12,11 +12,14 @@ public class CustomerFlag
 
     protected CustomerFlag() { }
 
-    /// <summary>Test-support only — no write path for CustomerFlag exists yet (the admin
-    /// "flag wholesale" endpoint is Phase 4's, under Manage Customers).</summary>
-    internal static CustomerFlag ForTesting(string phoneNormalized, bool wholesale) => new()
+    public static CustomerFlag Create(string phoneNormalized, bool wholesale) => new()
     {
         PhoneNormalized = phoneNormalized,
         Wholesale = wholesale
     };
+
+    public void SetWholesale(bool wholesale) => Wholesale = wholesale;
+
+    /// <summary>Test-support only.</summary>
+    internal static CustomerFlag ForTesting(string phoneNormalized, bool wholesale) => Create(phoneNormalized, wholesale);
 }

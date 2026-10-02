@@ -30,11 +30,11 @@ public class AuthTestClient(HttpClient client)
         return response;
     }
 
-    public async Task<HttpResponseMessage> PostMultipartAsync(string url, byte[] fileBytes, string fieldName = "file", string fileName = "proof.png")
+    public async Task<HttpResponseMessage> PostMultipartAsync(string url, byte[] fileBytes, string fieldName = "file", string fileName = "proof.png", string contentType = "image/png")
     {
         var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(fileBytes);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         content.Add(fileContent, fieldName, fileName);
 
         var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };

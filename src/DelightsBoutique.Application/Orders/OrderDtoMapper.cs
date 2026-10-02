@@ -10,4 +10,10 @@ internal static class OrderDtoMapper
         order.Items.Select(i => new OrderItemDto(i.Slug, i.Name, i.Quantity, i.UnitPrice, i.Size, i.Color)).ToList(),
         order.Subtotal, order.CustomerName, order.Phone, order.Fulfillment, order.Address,
         order.PaymentMethod, order.PaymentProofUrl, order.Notes);
+
+    public static AdminOrderDto ToAdminDto(Order order) => new(
+        order.Id, order.CreatedAt, order.Status,
+        order.Items.Select(i => new OrderItemDto(i.Slug, i.Name, i.Quantity, i.UnitPrice, i.Size, i.Color)).ToList(),
+        order.Subtotal, order.CustomerName, order.Phone, order.Fulfillment, order.Address,
+        order.PaymentMethod, order.PaymentProofUrl, order.Notes, order.InternalNotes);
 }

@@ -24,4 +24,6 @@ public class OrderNotification
         CreatedAt = DateTime.UtcNow,
         Read = false
     };
+
+    public void MarkRead() => Read = true;
 }

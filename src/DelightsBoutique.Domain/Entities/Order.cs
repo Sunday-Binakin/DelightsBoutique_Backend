@@ -59,6 +59,8 @@ public class Order
         PaymentProofUrl = url;
     }
 
+    public void SetInternalNotes(string? notes) => InternalNotes = notes;
+
     /// <summary>
     /// Test-support only: constructs an Order in an arbitrary state so
     /// <see cref="TransitionTo"/> can be unit tested before Phase 3's Create() exists.

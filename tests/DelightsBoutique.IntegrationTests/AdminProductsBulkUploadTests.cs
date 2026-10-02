@@ -1,0 +1,80 @@
+using System.Net;
+using System.Text;
+using FluentAssertions;
+
+namespace DelightsBoutique.IntegrationTests;
+
+public class AdminProductsBulkUploadTests(CustomWebApplicationFactory factory) : IClassFixture<CustomWebApplicationFactory>
+{
+    private const string Header = "slug,name,categorySlug,description,retailPrice,wholesalePrice,wholesaleMoq,compareAtPrice,tone,badge,stockStatus,sizes,colors,imageUrls";
+
+    [Fact]
+    public async Task BulkUpload_WithWrongPermission_Returns403()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ActiveStaffEmail); // ManageOrders, not ManageProducts
+
+        var response = await client.PostMultipartAsync("/api/admin/products/bulk-upload", Encoding.UTF8.GetBytes(Header), fileName: "products.csv", contentType: "text/csv");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task BulkUpload_MissingFile_Returns400()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+
+        var response = await client.PostAsync("/api/admin/products/bulk-upload", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task BulkUpload_MixOfValidAndInvalidRows_ReturnsPerRowSummary_NotAllOrNothing()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"bulk-cat-{Guid.NewGuid():N}"[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Bulk Upload Category", tone = "Rose" });
+
+        var goodSlug = $"bulk-good-{Guid.NewGuid():N}"[..24];
+        var csv = new StringBuilder()
+            .AppendLine(Header)
+            .AppendLine($"{goodSlug},Good Product,{categorySlug},A fine product,50,,,,Rose,,InStock,,,")
+            .AppendLine($",Bad Price Product,{categorySlug},Has a bad price,not-a-number,,,,Rose,,InStock,,,")
+            .ToString();
+
+        var response = await admin.PostMultipartAsync("/api/admin/products/bulk-upload", Encoding.UTF8.GetBytes(csv), fileName: "products.csv", contentType: "text/csv");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("successCount").GetInt32().Should().Be(1);
+        body.GetProperty("errorCount").GetInt32().Should().Be(1);
+
+        var rows = body.GetProperty("rows").EnumerateArray().ToList();
+        rows.Should().Contain(r => r.GetProperty("success").GetBoolean() && r.GetProperty("slug").GetString() == goodSlug);
+        rows.Should().Contain(r => !r.GetProperty("success").GetBoolean() && r.GetProperty("error").GetString()!.Contains("retailPrice"));
+
+        // Confirm the good row was actually persisted, not just reported as a success.
+        var getResponse = await admin.GetAsync($"/api/products/{goodSlug}");
+        getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task BulkUpload_DuplicateSlugAgainstExistingProduct_ReportsRowFailure()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var existingSlug = await OrdersTestHelper.CreateTestProductAsync(factory, retailPrice: 10m);
+        var categorySlug = $"bulk-cat2-{Guid.NewGuid():N}"[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Bulk Upload Category 2", tone = "Rose" });
+
+        var csv = new StringBuilder()
+            .AppendLine(Header)
+            .AppendLine($"{existingSlug},Duplicate,{categorySlug},desc,50,,,,Rose,,InStock,,,")
+            .ToString();
+
+        var response = await admin.PostMultipartAsync("/api/admin/products/bulk-upload", Encoding.UTF8.GetBytes(csv), fileName: "products.csv", contentType: "text/csv");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("errorCount").GetInt32().Should().Be(1);
+        body.GetProperty("rows")[0].GetProperty("error").GetString().Should().Contain(existingSlug);
+    }
+}

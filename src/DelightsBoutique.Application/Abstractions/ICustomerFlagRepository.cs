@@ -4,7 +4,9 @@ namespace DelightsBoutique.Application.Abstractions;
 
 public interface ICustomerFlagRepository
 {
-    /// <summary>Null = not flagged wholesale. No write path this phase — the admin
-    /// "flag customer wholesale" endpoint is Phase 4's (Manage Customers).</summary>
+    /// <summary>Null = not flagged wholesale.</summary>
     Task<CustomerFlag?> GetAsync(string normalizedPhone, CancellationToken ct);
+
+    /// <summary>Load-or-create, saves internally.</summary>
+    Task UpsertAsync(string normalizedPhone, bool wholesale, CancellationToken ct);
 }

@@ -131,4 +131,25 @@ public class OrderTests
 
         act.Should().Throw<PaymentProofNotAllowedException>();
     }
+
+    [Fact]
+    public void SetInternalNotes_SetsNotesRegardlessOfStatus()
+    {
+        var order = Order.ForTesting(OrderStatus.Completed, FulfillmentType.Delivery);
+
+        order.SetInternalNotes("Called customer to confirm address");
+
+        order.InternalNotes.Should().Be("Called customer to confirm address");
+    }
+
+    [Fact]
+    public void SetInternalNotes_Null_ClearsNotes()
+    {
+        var order = Order.ForTesting(OrderStatus.PendingConfirmation, FulfillmentType.Pickup);
+        order.SetInternalNotes("some note");
+
+        order.SetInternalNotes(null);
+
+        order.InternalNotes.Should().BeNull();
+    }
 }

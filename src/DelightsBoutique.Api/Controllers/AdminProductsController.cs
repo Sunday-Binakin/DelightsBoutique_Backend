@@ -2,6 +2,8 @@ using DelightsBoutique.Api.Filters;
 using DelightsBoutique.Application.Products.Commands;
 using DelightsBoutique.Application.Products.Dtos;
 using DelightsBoutique.Domain.Enums;
+using FluentValidation;
+using FluentValidation.Results;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -43,5 +45,20 @@ public class AdminProductsController(IMediator mediator) : ControllerBase
     {
         var deleted = await mediator.Send(new DeleteProductCommand(slug), ct);
         return deleted ? NoContent() : NotFound();
+    }
+
+    [HttpPost("bulk-upload")]
+    [RequestSizeLimit(2_097_152)] // 2MB — generous for a product CSV; same accepted Kestrel
+    // 400-vs-413 caveat documented on OrdersController.UploadPaymentProof applies here too.
+    public async Task<IActionResult> BulkUpload(IFormFile? file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            throw new ValidationException([new ValidationFailure("file", "file is required.")]);
+
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct);
+
+        var result = await mediator.Send(new BulkUploadProductsCommand(ms.ToArray()), ct);
+        return Ok(result);
     }
 }

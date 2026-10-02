@@ -1,6 +1,10 @@
+using System.Text.Json;
 using DelightsBoutique.Application.Abstractions;
+using DelightsBoutique.Application.Common;
+using DelightsBoutique.Application.Content.Dtos;
 using DelightsBoutique.Application.Orders.Dtos;
 using DelightsBoutique.Domain.Entities;
+using DelightsBoutique.Domain.Enums;
 using DelightsBoutique.Domain.Interfaces;
 using DelightsBoutique.Domain.ValueObjects;
 using FluentValidation;
@@ -12,7 +16,7 @@ namespace DelightsBoutique.Application.Orders.Commands;
 public class CreateOrderCommandHandler(
     IProductRepository products, ICustomerFlagRepository customerFlags, IPhoneNormalizer phoneNormalizer,
     IOrderIdGenerator orderIdGenerator, IOrderPricingService pricing, IOrderRepository orders,
-    IOrderNotificationRepository notifications)
+    IOrderNotificationRepository notifications, ISiteContentRepository siteContent, INotificationQueue notificationQueue)
     : IRequestHandler<CreateOrderCommand, OrderDto>
 {
     public async Task<OrderDto> Handle(CreateOrderCommand request, CancellationToken ct)
@@ -41,7 +45,28 @@ public class CreateOrderCommandHandler(
 
         await orders.AddAsync(order, ct);
         await notifications.AddAsync(OrderNotification.Create(order.Id, order.CustomerName, order.Subtotal), ct);
+        await EnqueueAdminAlertAsync(order, ct);
 
         return OrderDtoMapper.ToDto(order);
+    }
+
+    // Fire-and-forget enqueue (never awaited downstream) so a slow email/WhatsApp provider
+    // can't add latency to the checkout response — the one case in this codebase where
+    // "blocking the response" is explicitly the thing being avoided, vs. OTP email which
+    // stays synchronous by design.
+    private async Task EnqueueAdminAlertAsync(Order order, CancellationToken ct)
+    {
+        var json = await siteContent.GetValueJsonAsync(SiteContentKey.SiteSettings, ct);
+        if (json is null) return;
+
+        var settings = JsonSerializer.Deserialize<SiteSettingsDto>(json, ContentJsonOptions.Default)!;
+
+        var message = new NotificationMessage(
+            RecipientEmail: settings.NotifyByEmail ? settings.NotificationEmail : null,
+            RecipientPhone: settings.NotifyByWhatsapp ? settings.WhatsappNumber : null,
+            Subject: $"New order {order.Id}",
+            Body: $"<p>New order {order.Id} from {order.CustomerName} — GHS {order.Subtotal:N2}.</p>");
+
+        notificationQueue.Enqueue(message);
     }
 }
