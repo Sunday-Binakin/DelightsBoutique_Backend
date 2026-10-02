@@ -69,6 +69,7 @@ builder.Services.AddScoped<IAuditLogRepository, EfAuditLogRepository>();
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
 builder.Services.AddScoped<ICustomerFlagRepository, EfCustomerFlagRepository>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
+builder.Services.AddScoped<IReportsRepository, EfReportsRepository>();
 builder.Services.AddScoped<IOrderNotificationRepository, EfOrderNotificationRepository>();
 builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();

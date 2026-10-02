@@ -21,6 +21,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     public const string ManageProductsStaffEmail = "staff-manage-products@test.local";
     public const string ManageContentStaffEmail = "staff-manage-content@test.local";
     public const string ManageCustomersStaffEmail = "staff-manage-customers@test.local";
+    public const string ViewReportsStaffEmail = "staff-view-reports@test.local";
     public const string KnownPassword = "Password123!";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
@@ -51,6 +52,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         db.StaffMembers.Add(StaffMember.ForTesting(ManageProductsStaffEmail, passwordHash, active: true, [Permission.ManageProducts]));
         db.StaffMembers.Add(StaffMember.ForTesting(ManageContentStaffEmail, passwordHash, active: true, [Permission.ManageContent]));
         db.StaffMembers.Add(StaffMember.ForTesting(ManageCustomersStaffEmail, passwordHash, active: true, [Permission.ManageCustomers]));
+        db.StaffMembers.Add(StaffMember.ForTesting(ViewReportsStaffEmail, passwordHash, active: true, [Permission.ViewReports]));
         await db.SaveChangesAsync();
     }
 

@@ -52,3 +52,22 @@ jobs:
         with:
           name: openapi-spec
           path: openapi/swagger.json
+
+  # Build-ready only, per BUILD_SPEC §14's "on merge to main — build/push Docker image, run
+  # dotnet ef database update against Staging, smoke-test /api/health, then promote to
+  # Production." This job covers the "build" half. Pushing to a registry and the actual
+  # Staging/Production deploy steps are deliberately left out — there's no real hosting
+  # target connected to this repo yet. Whoever connects one should add: a `docker push` step
+  # (with registry login), a Staging migration step, an /api/health smoke test, and a
+  # promotion step — all gated behind this job so they only run once build-and-test passes.
+  build-image:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t delights-boutique-api:${{ github.sha }} .
