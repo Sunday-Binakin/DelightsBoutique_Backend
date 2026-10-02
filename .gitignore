@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # Local disk file storage (payment-proof uploads etc.) — runtime data, never committed
 src/DelightsBoutique.Api/App_Data/
+
+# Claude Code session-internal state, not project source
+.claude/
