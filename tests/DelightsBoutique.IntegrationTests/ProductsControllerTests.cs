@@ -8,7 +8,7 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
     private AuthTestClient PublicClient() => new(factory.CreateClient());
 
     private async Task<(string Slug, AuthTestClient Admin)> CreateTestProductAsync(
-        string namePrefix, decimal retailPrice, string? badge = null, string[]? sizes = null, string[]? colors = null)
+        string namePrefix, decimal retailPrice, string? badge = null, string[]? sizes = null, string[]? colors = null, string? description = null)
     {
         var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
         var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
@@ -17,7 +17,7 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var name = $"{namePrefix} {Guid.NewGuid():N}";
         var body = new
         {
-            name, categorySlug, description = "integration test product",
+            name, categorySlug, description = description ?? "integration test product",
             retailPrice, tone = "Rose", stockStatus = "InStock", badge, sizes, colors
         };
         var response = await admin.PostAsync("/api/admin/products", body);
@@ -95,6 +95,60 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var body = await TestAuthHelper.ReadJsonAsync(response);
         var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
         slugs.Should().Contain(slug);
+    }
+
+    [Fact]
+    public async Task Search_MultiWord_RequiresEachWordSomewhereInNameOrDescription_NotTheLiteralPhrase()
+    {
+        var marker = $"MwTest{Guid.NewGuid():N}"[..20];
+        // Each word appears, but in different fields and not as a contiguous phrase —
+        // proves AND-across-words, OR-across-fields, not a literal "word1 word2" substring match.
+        var (slug, _) = await CreateTestProductAsync($"{marker}Alpha", 20m, description: $"has the {marker}Beta keyword too");
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}Alpha%20{marker}Beta");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(slug);
+    }
+
+    [Fact]
+    public async Task Search_MultiWord_AllWordsMustMatch_MissingOneExcludesTheProduct()
+    {
+        var marker = $"MwMiss{Guid.NewGuid():N}"[..20];
+        var (slug, _) = await CreateTestProductAsync($"{marker}Only", 20m);
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}Only%20{marker}NeverAppearsAnywhere");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().NotContain(slug);
+    }
+
+    [Fact]
+    public async Task Search_NameMatch_RanksBeforeDescriptionOnlyMatch_EvenWhenOlder()
+    {
+        var marker = $"RankTest{Guid.NewGuid():N}"[..20];
+        var (nameMatchSlug, _) = await CreateTestProductAsync($"{marker}", 20m); // created first == older
+        await Task.Delay(50); // CreatedAt granularity safety margin
+        var (descriptionOnlySlug, _) = await CreateTestProductAsync("Unrelated", 20m, description: $"mentions {marker} in passing"); // newer
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}"); // default sort is newest-first
+
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.IndexOf(nameMatchSlug).Should().BeLessThan(slugs.IndexOf(descriptionOnlySlug),
+            "a Name match should outrank a newer Description-only match despite the default newest-first sort");
+    }
+
+    [Fact]
+    public async Task Search_EmptyOrWhitespaceTerm_ReturnsCatalogUnfiltered()
+    {
+        var unfiltered = await PublicClient().GetAsync("/api/products");
+        var withBlankSearch = await PublicClient().GetAsync("/api/products?search=%20");
+
+        var unfilteredTotal = (await TestAuthHelper.ReadJsonAsync(unfiltered)).GetProperty("total").GetInt32();
+        var blankTotal = (await TestAuthHelper.ReadJsonAsync(withBlankSearch)).GetProperty("total").GetInt32();
+        blankTotal.Should().Be(unfilteredTotal);
     }
 
     [Fact]

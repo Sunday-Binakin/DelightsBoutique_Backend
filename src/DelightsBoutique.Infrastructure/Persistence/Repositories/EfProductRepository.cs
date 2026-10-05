@@ -38,10 +38,20 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         if (!string.IsNullOrWhiteSpace(filter.CategorySlug))
             query = query.Where(x => x.p.CategorySlug == filter.CategorySlug);
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-            query = query.Where(x =>
-                EF.Functions.ILike(x.p.Name, $"%{filter.Search}%") ||
-                EF.Functions.ILike(x.p.Description, $"%{filter.Search}%"));
+        // Multi-word AND: each word independently must appear (as a substring) in Name OR
+        // Description — successive .Where() calls compose with AND, so "red dress" requires
+        // "red" somewhere AND "dress" somewhere, not the literal two-word phrase. A blank/
+        // whitespace-only term is already handled by the outer IsNullOrWhiteSpace check —
+        // it skips this filter entirely and returns the catalog unfiltered.
+        var searchWords = string.IsNullOrWhiteSpace(filter.Search)
+            ? []
+            : filter.Search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var word in searchWords)
+        {
+            var pattern = $"%{word}%";
+            query = query.Where(x => EF.Functions.ILike(x.p.Name, pattern) || EF.Functions.ILike(x.p.Description, pattern));
+        }
 
         if (filter.Badge is not null)
             query = query.Where(x => x.p.Badge == filter.Badge);
@@ -63,12 +73,20 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         if (filter.Colors is { Count: > 0 })
             query = query.Where(x => x.p.Colors.Any(c => filter.Colors.Contains(c)));
 
+        // Name-match-first: when searching, a product whose Name contains the full search
+        // phrase outranks one that only matched via Description (or via Name/Description
+        // individually containing different words) — the requested Sort then only breaks
+        // ties within each of those two relevance tiers, rather than ignoring relevance.
+        var ordered = searchWords.Length > 0
+            ? query.OrderByDescending(x => EF.Functions.ILike(x.p.Name, $"%{filter.Search}%"))
+            : query.OrderBy(x => 0); // no search term — no relevance tier, Sort alone decides order
+
         query = filter.Sort switch
         {
-            "price-asc" => query.OrderBy(x => x.p.RetailPrice).ThenBy(x => x.p.Id),
-            "price-desc" => query.OrderByDescending(x => x.p.RetailPrice).ThenBy(x => x.p.Id),
-            "rating" => query.OrderByDescending(x => x.p.Rating).ThenBy(x => x.p.Id),
-            _ => query.OrderByDescending(x => x.p.CreatedAt).ThenBy(x => x.p.Id) // "newest" default; ThenBy stabilizes paging across ties
+            "price-asc" => ordered.ThenBy(x => x.p.RetailPrice).ThenBy(x => x.p.Id),
+            "price-desc" => ordered.ThenByDescending(x => x.p.RetailPrice).ThenBy(x => x.p.Id),
+            "rating" => ordered.ThenByDescending(x => x.p.Rating).ThenBy(x => x.p.Id),
+            _ => ordered.ThenByDescending(x => x.p.CreatedAt).ThenBy(x => x.p.Id) // "newest" default; ThenBy stabilizes paging across ties
         };
 
         // Deliberately two round trips, not one: EF Core has no clean LINQ shape for
