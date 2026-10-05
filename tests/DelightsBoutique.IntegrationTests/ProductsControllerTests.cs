@@ -7,7 +7,8 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
 {
     private AuthTestClient PublicClient() => new(factory.CreateClient());
 
-    private async Task<(string Slug, AuthTestClient Admin)> CreateTestProductAsync(string namePrefix, decimal retailPrice, string? badge = null)
+    private async Task<(string Slug, AuthTestClient Admin)> CreateTestProductAsync(
+        string namePrefix, decimal retailPrice, string? badge = null, string[]? sizes = null, string[]? colors = null)
     {
         var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
         var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
@@ -17,7 +18,7 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var body = new
         {
             name, categorySlug, description = "integration test product",
-            retailPrice, tone = "Rose", stockStatus = "InStock", badge
+            retailPrice, tone = "Rose", stockStatus = "InStock", badge, sizes, colors
         };
         var response = await admin.PostAsync("/api/admin/products", body);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -109,6 +110,63 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var body = await TestAuthHelper.ReadJsonAsync(response);
         var prices = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("retailPrice").GetDecimal()).ToList();
         prices.Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public async Task Search_PriceRange_FiltersServerSide_NotJustTheLoadedPage()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"PriceTest{marker}Cheap", 10m);
+        var (midSlug, _) = await CreateTestProductAsync($"PriceTest{marker}Mid", 40m);
+        await CreateTestProductAsync($"PriceTest{marker}Expensive", 200m);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=PriceTest{marker}&minPrice=30&maxPrice=50");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().ContainSingle().Which.Should().Be(midSlug);
+        body.GetProperty("total").GetInt32().Should().Be(1); // total reflects the filter, not the unfiltered catalogue
+    }
+
+    [Fact]
+    public async Task Search_BySize_MatchesProductsWithAnyRequestedSize()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        var (mediumSlug, _) = await CreateTestProductAsync($"SizeTest{marker}", 20m, sizes: ["S", "M"]);
+        var (largeOnlySlug, _) = await CreateTestProductAsync($"SizeTest{marker}", 20m, sizes: ["XL"]);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=SizeTest{marker}&size=M");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(mediumSlug);
+        slugs.Should().NotContain(largeOnlySlug);
+    }
+
+    [Fact]
+    public async Task Search_ByColor_MatchesProductsWithAnyRequestedColor()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        var (redSlug, _) = await CreateTestProductAsync($"ColorTest{marker}", 20m, colors: ["Red", "Blue"]);
+        var (greenOnlySlug, _) = await CreateTestProductAsync($"ColorTest{marker}", 20m, colors: ["Green"]);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=ColorTest{marker}&color=Red");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(redSlug);
+        slugs.Should().NotContain(greenOnlySlug);
+    }
+
+    [Fact]
+    public async Task Search_FilterCombinationWithNoMatches_ReturnsEmptyPage_NotAnError()
+    {
+        var response = await PublicClient().GetAsync($"/api/products?size={Guid.NewGuid():N}&color={Guid.NewGuid():N}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("data").GetArrayLength().Should().Be(0);
+        body.GetProperty("total").GetInt32().Should().Be(0);
     }
 
     [Fact]

@@ -8,5 +8,7 @@ namespace DelightsBoutique.Application.Products.Queries;
 public class GetProductsQueryHandler(IProductRepository products) : IRequestHandler<GetProductsQuery, PagedResult<ProductDto>>
 {
     public Task<PagedResult<ProductDto>> Handle(GetProductsQuery request, CancellationToken cancellationToken) =>
-        products.SearchAsync(new ProductSearchFilter(request.Category, request.Search, request.Badge, request.Sort, request.Page, request.Limit), cancellationToken);
+        products.SearchAsync(new ProductSearchFilter(
+            request.Category, request.Search, request.Badge, request.Sort, request.Page, request.Limit,
+            request.MinPrice, request.MaxPrice, request.Size, request.Color), cancellationToken);
 }

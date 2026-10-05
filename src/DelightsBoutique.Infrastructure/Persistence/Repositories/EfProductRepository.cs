@@ -45,6 +45,23 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         if (filter.Badge is not null)
             query = query.Where(x => x.p.Badge == filter.Badge);
 
+        if (filter.MinPrice is not null)
+            query = query.Where(x => x.p.RetailPrice >= filter.MinPrice);
+
+        if (filter.MaxPrice is not null)
+            query = query.Where(x => x.p.RetailPrice <= filter.MaxPrice);
+
+        // Product has ANY of the requested sizes/colors — the product's own text[] column
+        // is the outer .Any(), checked against the (small, client-supplied) requested list,
+        // not the other way around: this direction translates reliably against a Postgres
+        // array column, whereas "requestedList.Any(x => product.Sizes.Contains(x))" risks
+        // EF Core not finding a translation for a C#-side list driving an array-column check.
+        if (filter.Sizes is { Count: > 0 })
+            query = query.Where(x => x.p.Sizes.Any(s => filter.Sizes.Contains(s)));
+
+        if (filter.Colors is { Count: > 0 })
+            query = query.Where(x => x.p.Colors.Any(c => filter.Colors.Contains(c)));
+
         query = filter.Sort switch
         {
             "price-asc" => query.OrderBy(x => x.p.RetailPrice).ThenBy(x => x.p.Id),
