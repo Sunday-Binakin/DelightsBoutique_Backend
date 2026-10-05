@@ -2,6 +2,7 @@ using DelightsBoutique.Application.Abstractions;
 using DelightsBoutique.Application.Products.Dtos;
 using DelightsBoutique.Domain.Exceptions;
 using FluentValidation;
+using FluentValidation.Results;
 using MediatR;
 
 namespace DelightsBoutique.Application.Products.Commands;
@@ -9,9 +10,18 @@ namespace DelightsBoutique.Application.Products.Commands;
 public class BulkUploadProductsCommandHandler(IProductCsvParser csvParser, IMediator mediator)
     : IRequestHandler<BulkUploadProductsCommand, BulkUploadResultDto>
 {
+    // No hard technical reason beyond this — each row round-trips through the full
+    // CreateProductCommand pipeline sequentially, so an unbounded file turns into an
+    // unbounded-length request. 1000 rows comfortably covers a boutique's catalog in one
+    // file while keeping worst-case request time predictable.
+    private const int MaxRows = 1000;
+
     public async Task<BulkUploadResultDto> Handle(BulkUploadProductsCommand request, CancellationToken ct)
     {
         var parsedRows = csvParser.Parse(request.FileBytes);
+        if (parsedRows.Count > MaxRows)
+            throw new ValidationException([new ValidationFailure("file", $"CSV has {parsedRows.Count} rows; the limit is {MaxRows}.")]);
+
         var results = new List<BulkUploadRowResult>();
 
         foreach (var row in parsedRows)

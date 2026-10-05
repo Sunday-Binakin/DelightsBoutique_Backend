@@ -9,11 +9,14 @@ namespace DelightsBoutique.Infrastructure.Products;
 
 /// <summary>CsvHelper is a third-party parsing library, so it stays behind this
 /// Infrastructure implementation of an Application-defined interface — same pattern as
-/// ImageSharpImageValidator behind IImageValidator. Proposed column schema (provisional,
-/// pending a real sample file from the business owner): slug,name,categorySlug,description,
-/// retailPrice,wholesalePrice,wholesaleMoq,compareAtPrice,tone,badge,stockStatus,sizes,
-/// colors,imageUrls — sizes/colors/imageUrls are ';'-separated within their cell to avoid
-/// colliding with CSV's own ',' delimiter.</summary>
+/// ImageSharpImageValidator behind IImageValidator. Confirmed column schema (per the
+/// frontend's R3 integration request): slug,name,categorySlug,description,retailPrice,
+/// wholesalePrice,wholesaleMoq,compareAtPrice,tone,badge,stockStatus,sizes,colors,
+/// imageUrls — sizes/colors/imageUrls are ';'-separated within their cell to avoid
+/// colliding with CSV's own ',' delimiter. A row whose slug already exists on another
+/// product fails that row (DuplicateSlugException from the reused CreateProductCommand
+/// pipeline) rather than updating it — bulk upload never silently overwrites existing
+/// catalog data.</summary>
 public class ProductCsvParser : IProductCsvParser
 {
     private class RawRow
