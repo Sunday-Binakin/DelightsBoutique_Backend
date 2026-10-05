@@ -16,6 +16,40 @@ public class AccountControllerTests(CustomWebApplicationFactory factory) : IClas
     }
 
     [Fact]
+    public async Task Get_Unauthenticated_Returns401()
+    {
+        var response = await PublicClient().GetAsync("/api/account");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Get_AsStaff_ReturnsCurrentNameEmailPhoneRole()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ActiveStaffEmail);
+
+        var response = await client.GetAsync("/api/account");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("email").GetString().Should().Be(CustomWebApplicationFactory.ActiveStaffEmail);
+        body.GetProperty("role").GetString().Should().Be("Staff");
+        body.TryGetProperty("phone", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Get_ReflectsAPriorProfileUpdate_NotJustTheOriginalSeed()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var newPhone = $"024{Random.Shared.Next(1000000, 9999999)}";
+        await client.PatchAsync("/api/account/profile", new { phone = newPhone });
+
+        var response = await client.GetAsync("/api/account");
+
+        (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("phone").GetString().Should().Be(newPhone);
+    }
+
+    [Fact]
     public async Task UpdateProfile_AsOwner_UpdatesNameAndPhone()
     {
         var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.OwnerEmail);

@@ -38,11 +38,12 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         if (!string.IsNullOrWhiteSpace(filter.CategorySlug))
             query = query.Where(x => x.p.CategorySlug == filter.CategorySlug);
 
-        // Multi-word AND: each word independently must appear (as a substring) in Name OR
-        // Description — successive .Where() calls compose with AND, so "red dress" requires
-        // "red" somewhere AND "dress" somewhere, not the literal two-word phrase. A blank/
-        // whitespace-only term is already handled by the outer IsNullOrWhiteSpace check —
-        // it skips this filter entirely and returns the catalog unfiltered.
+        // Multi-word AND: each word independently must appear (as a substring) in Name,
+        // Description, or the product's category name — successive .Where() calls compose
+        // with AND, so "red dress" requires "red" somewhere AND "dress" somewhere, not the
+        // literal two-word phrase. A blank/whitespace-only term is already handled by the
+        // outer IsNullOrWhiteSpace check — it skips this filter entirely and returns the
+        // catalog unfiltered.
         var searchWords = string.IsNullOrWhiteSpace(filter.Search)
             ? []
             : filter.Search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -50,7 +51,10 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         foreach (var word in searchWords)
         {
             var pattern = $"%{word}%";
-            query = query.Where(x => EF.Functions.ILike(x.p.Name, pattern) || EF.Functions.ILike(x.p.Description, pattern));
+            query = query.Where(x =>
+                EF.Functions.ILike(x.p.Name, pattern) ||
+                EF.Functions.ILike(x.p.Description, pattern) ||
+                EF.Functions.ILike(x.CategoryName, pattern));
         }
 
         if (filter.Badge is not null)

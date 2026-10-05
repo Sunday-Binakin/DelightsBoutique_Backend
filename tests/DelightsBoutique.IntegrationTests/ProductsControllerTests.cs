@@ -141,6 +141,27 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
     }
 
     [Fact]
+    public async Task Search_MatchesCategoryName_NotJustProductNameOrDescription()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categoryName = $"Category{Guid.NewGuid():N}";
+        var categorySlug = categoryName.ToLowerInvariant()[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = categoryName, tone = "Rose" });
+        var productResponse = await admin.PostAsync("/api/admin/products", new
+        {
+            name = "Totally Unrelated Name", categorySlug,
+            description = "no overlap with the category name either", retailPrice = 20m, tone = "Rose", stockStatus = "InStock"
+        });
+        var slug = (await TestAuthHelper.ReadJsonAsync(productResponse)).GetProperty("slug").GetString();
+
+        var response = await PublicClient().GetAsync($"/api/products?search={categoryName}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(slug);
+    }
+
+    [Fact]
     public async Task Search_EmptyOrWhitespaceTerm_ReturnsCatalogUnfiltered()
     {
         var unfiltered = await PublicClient().GetAsync("/api/products");

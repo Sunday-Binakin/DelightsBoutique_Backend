@@ -1,4 +1,5 @@
 using DelightsBoutique.Application.Account.Commands;
+using DelightsBoutique.Application.Account.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,11 @@ namespace DelightsBoutique.Api.Controllers;
 [Authorize]
 public class AccountController(IMediator mediator) : ControllerBase
 {
+    // Session's own claims (GET /api/auth/session) don't carry Phone — this is the live,
+    // always-current alternative, not a static cookie snapshot.
+    [HttpGet]
+    public async Task<IActionResult> Get(CancellationToken ct) => Ok(await mediator.Send(new GetAccountQuery(), ct));
+
     [HttpPatch("profile")]
     public async Task<IActionResult> UpdateProfile(UpdateAccountProfileCommand command, CancellationToken ct) =>
         Ok(await mediator.Send(command, ct));
