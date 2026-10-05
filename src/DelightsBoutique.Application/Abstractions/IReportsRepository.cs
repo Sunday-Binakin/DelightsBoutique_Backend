@@ -13,4 +13,5 @@ public interface IReportsRepository
     Task<List<TopProductDto>> GetTopProductsAsync(ReportsFilter filter, CancellationToken ct);
     Task<List<StatusBreakdownEntry>> GetStatusBreakdownAsync(ReportsFilter filter, CancellationToken ct);
     Task<List<PaymentBreakdownEntry>> GetPaymentBreakdownAsync(ReportsFilter filter, CancellationToken ct);
+    Task<List<DailyRevenueEntry>> GetDailySeriesAsync(ReportsFilter filter, CancellationToken ct);
 }
