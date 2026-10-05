@@ -229,7 +229,9 @@ app.UseCors("Storefront");
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(fileStorageRoot),
-    RequestPath = "/files"
+    RequestPath = "/files",
+    // Stored names are GUIDs and never reused, so a served file can't change under its URL.
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable"
 });
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<UploadSizeGuardMiddleware>();
