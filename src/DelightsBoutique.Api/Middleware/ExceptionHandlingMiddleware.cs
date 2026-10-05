@@ -87,7 +87,7 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
 
     // Per dot-separated segment, so a nested path like "Items[0].Slug" (from
     // RuleForEach/ChildRules) becomes "items[0].slug", not just its first letter touched.
-    private static string ToCamelCase(string propertyName) =>
+    public static string ToCamelCase(string propertyName) =>
         string.Join('.', propertyName.Split('.').Select(segment =>
             segment.Length == 0 ? segment : char.ToLowerInvariant(segment[0]) + segment[1..]));
 }

@@ -61,6 +61,18 @@ public class AuthFlowTests(CustomWebApplicationFactory factory) : IClassFixture<
     }
 
     [Fact]
+    public async Task Login_OutsideDevelopment_ResponseNeverContainsTheOtpCode()
+    {
+        var client = CreateClient();
+
+        var response = await client.PostAsync("/api/auth/login", new { email = CustomWebApplicationFactory.OwnerEmail, password = CustomWebApplicationFactory.KnownPassword });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.TryGetProperty("devCode", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Login_WrongPassword_Returns401()
     {
         var client = CreateClient();

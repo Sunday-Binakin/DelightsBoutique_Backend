@@ -22,6 +22,9 @@ public class AuthController(IMediator mediator) : ControllerBase
         var result = await mediator.Send(command, ct);
         return result switch
         {
+            // devCode is present only when the handler populated it (Development) — omitted
+            // entirely otherwise, not sent as null, so production responses are unchanged.
+            LoginSucceeded { DevCode: not null } s => Ok(new { loginToken = s.LoginToken, devCode = s.DevCode }),
             LoginSucceeded s => Ok(new { loginToken = s.LoginToken }),
             LoginStaffDeactivated => StatusCode(StatusCodes.Status403Forbidden,
                 new { error = new { code = "STAFF_DEACTIVATED", message = "This staff account is deactivated." } }),

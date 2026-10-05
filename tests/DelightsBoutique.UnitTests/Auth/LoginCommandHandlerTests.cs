@@ -15,9 +15,41 @@ public class LoginCommandHandlerTests
     private readonly Mock<IOtpChallengeStore> _otpChallengeStore = new();
     private readonly Mock<IOtpEmailSender> _otpEmailSender = new();
 
-    private LoginCommandHandler CreateHandler() => new(
+    private LoginCommandHandler CreateHandler(bool isDevelopment = false) => new(
         _ownerRepository.Object, _staffRepository.Object, _passwordHasher.Object,
-        _otpChallengeStore.Object, _otpEmailSender.Object);
+        _otpChallengeStore.Object, _otpEmailSender.Object, new FakeRuntimeEnvironment(isDevelopment));
+
+    private sealed record FakeRuntimeEnvironment(bool IsDevelopment) : IRuntimeEnvironment;
+
+    [Fact]
+    public async Task Handle_InDevelopment_ReturnsOtpCodeInResult()
+    {
+        var owner = OwnerProfile.Create("Store Owner", "owner@example.com", null, "hashed");
+        _ownerRepository.Setup(r => r.GetByEmailAsync("owner@example.com", It.IsAny<CancellationToken>())).ReturnsAsync(owner);
+        _passwordHasher.Setup(h => h.Verify("correct-password", "hashed")).Returns(true);
+        _otpChallengeStore.Setup(s => s.CreateAsync(owner.Id, "Owner", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("login-token", "123456"));
+
+        var result = await CreateHandler(isDevelopment: true).Handle(
+            new DelightsBoutique.Application.Auth.Commands.LoginCommand("owner@example.com", "correct-password"), CancellationToken.None);
+
+        result.Should().BeOfType<LoginSucceeded>().Which.DevCode.Should().Be("123456");
+    }
+
+    [Fact]
+    public async Task Handle_OutsideDevelopment_NeverReturnsOtpCode()
+    {
+        var owner = OwnerProfile.Create("Store Owner", "owner@example.com", null, "hashed");
+        _ownerRepository.Setup(r => r.GetByEmailAsync("owner@example.com", It.IsAny<CancellationToken>())).ReturnsAsync(owner);
+        _passwordHasher.Setup(h => h.Verify("correct-password", "hashed")).Returns(true);
+        _otpChallengeStore.Setup(s => s.CreateAsync(owner.Id, "Owner", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("login-token", "123456"));
+
+        var result = await CreateHandler(isDevelopment: false).Handle(
+            new DelightsBoutique.Application.Auth.Commands.LoginCommand("owner@example.com", "correct-password"), CancellationToken.None);
+
+        result.Should().BeOfType<LoginSucceeded>().Which.DevCode.Should().BeNull();
+    }
 
     [Fact]
     public async Task Handle_CorrectOwnerCredentials_SucceedsAndSendsOtp()

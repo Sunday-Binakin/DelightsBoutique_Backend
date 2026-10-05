@@ -26,6 +26,30 @@ public class ValidationErrorEnvelopeTests(CustomWebApplicationFactory factory) :
     }
 
     [Fact]
+    public async Task ValidationMessage_UsesTheSameCamelCaseNameAsTheFieldKey()
+    {
+        var response = await PublicClient().PostAsync("/api/newsletter/subscribe", new { email = "not-an-email" });
+
+        var message = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("error").GetProperty("fields").GetProperty("email").GetString();
+        message.Should().Contain("'email'");
+        message.Should().NotContain("'Email'");
+    }
+
+    [Fact]
+    public async Task OversizedUpload_ReturnsStandardEnvelope_NotRawProblemDetails()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var twelveMb = new byte[12 * 1024 * 1024];
+
+        var response = await client.PostMultipartAsync("/api/admin/uploads/images", twelveMb, fileName: "huge.png", contentType: "image/png");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var error = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("error");
+        error.GetProperty("code").GetString().Should().Be("VALIDATION_ERROR");
+        error.GetProperty("fields").TryGetProperty("file", out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task NestedRuleForEachValidationFailure_FieldKeyIsCamelCase_IncludingTheArrayIndex()
     {
         var response = await PublicClient().PostAsync("/api/orders", new
