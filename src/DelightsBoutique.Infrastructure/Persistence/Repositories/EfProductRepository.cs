@@ -23,12 +23,16 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
     public Task<Product?> GetEntityBySlugAsync(string slug, CancellationToken ct) =>
         db.Products.FirstOrDefaultAsync(p => p.Slug == slug, ct);
 
+    // NOTE: this filter-building block is deliberately duplicated in GetFacetsAsync below,
+    // not shared via a helper returning a named row type — tried that once (a private
+    // record instead of the anonymous type), and confirmed live against the real database
+    // that EF Core's translator breaks on it the same way it breaks on a named ValueTuple
+    // (same class of bug this comment already warned about): "could not be translated"
+    // once further Where/OrderBy/SelectMany composes against the named type's properties.
+    // Anonymous types are the only form of this intermediate row confirmed to survive that
+    // composition, and an anonymous type can't be a shared helper's declared return type.
     public async Task<PagedResult<ProductDto>> SearchAsync(ProductSearchFilter filter, CancellationToken ct)
     {
-        // Anonymous-type projection, not a named ValueTuple — EF Core's SQL translator does
-        // not reliably handle a named tuple's field access when the query is subsequently
-        // composed with Where/OrderBy across multiple statements (throws at runtime:
-        // "could not be translated"). Anonymous types are the well-supported idiom here.
         var query =
             from p in db.Products.AsNoTracking()
             join c in db.Categories.AsNoTracking() on p.CategorySlug equals c.Slug into cj
@@ -108,6 +112,57 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
             .ToListAsync(ct);
 
         return new PagedResult<ProductDto>(data, filter.Page, filter.Limit, total);
+    }
+
+    public async Task<ProductFacetsDto> GetFacetsAsync(ProductFacetsFilter filter, CancellationToken ct)
+    {
+        var query =
+            from p in db.Products.AsNoTracking()
+            join c in db.Categories.AsNoTracking() on p.CategorySlug equals c.Slug into cj
+            from c in cj.DefaultIfEmpty()
+            select new { p, CategoryName = c != null ? c.Name : p.CategorySlug };
+
+        if (!string.IsNullOrWhiteSpace(filter.CategorySlug))
+            query = query.Where(x => x.p.CategorySlug == filter.CategorySlug);
+
+        var searchWords = string.IsNullOrWhiteSpace(filter.Search)
+            ? []
+            : filter.Search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var word in searchWords)
+        {
+            var pattern = $"%{word}%";
+            query = query.Where(x =>
+                EF.Functions.ILike(x.p.Name, pattern) ||
+                EF.Functions.ILike(x.p.Description, pattern) ||
+                EF.Functions.ILike(x.CategoryName, pattern));
+        }
+
+        if (filter.Badge is not null)
+            query = query.Where(x => x.p.Badge == filter.Badge);
+
+        if (filter.MinPrice is not null)
+            query = query.Where(x => x.p.RetailPrice >= filter.MinPrice);
+
+        if (filter.MaxPrice is not null)
+            query = query.Where(x => x.p.RetailPrice <= filter.MaxPrice);
+
+        // No Sizes/Colors/Sort/paging applied here, deliberately — this reports every
+        // size/color option the scope has, so it must stay unnarrowed by the very
+        // dimension it's reporting on.
+        //
+        // SelectMany(x => x.p.Sizes) to unnest the array server-side does NOT translate
+        // here (confirmed live: "could not be translated" on EF.Property<List<string>>,
+        // even though .Any() against the same column translates fine elsewhere in this
+        // file) — flattening/distinct-ing a Postgres array column via SelectMany is a
+        // different operation than membership-checking it, and this EF Core/Npgsql
+        // combination only supports the latter in a composed query. Materializing the
+        // (filter-bounded) Sizes/Colors arrays first and flattening in memory sidesteps it.
+        var rows = await query.Select(x => new { x.p.Sizes, x.p.Colors }).ToListAsync(ct);
+        var sizes = rows.SelectMany(r => r.Sizes).Distinct().OrderBy(s => s).ToList();
+        var colors = rows.SelectMany(r => r.Colors).Distinct().OrderBy(c => c).ToList();
+
+        return new ProductFacetsDto(sizes, colors);
     }
 
     public async Task<List<ProductDto>> GetBySlugsAsync(IReadOnlyList<string> slugs, CancellationToken ct)

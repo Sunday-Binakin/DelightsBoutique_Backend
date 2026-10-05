@@ -245,6 +245,50 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
     }
 
     [Fact]
+    public async Task Facets_ReturnsDistinctSizesAndColorsAcrossTheWholeScope_NotJustOnePage()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"FacetTest{marker}A", 20m, sizes: ["S", "M"], colors: ["Red"]);
+        await CreateTestProductAsync($"FacetTest{marker}B", 20m, sizes: ["XL"], colors: ["Blue"]);
+
+        var response = await PublicClient().GetAsync($"/api/products/facets?search=FacetTest{marker}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var sizes = body.GetProperty("sizes").EnumerateArray().Select(s => s.GetString()).ToList();
+        var colors = body.GetProperty("colors").EnumerateArray().Select(c => c.GetString()).ToList();
+        sizes.Should().BeEquivalentTo("S", "M", "XL");
+        colors.Should().BeEquivalentTo("Red", "Blue");
+    }
+
+    [Fact]
+    public async Task Facets_NotNarrowedByItsOwnSizeOrColorDimension()
+    {
+        // Facets must report every option the scope has, even ones not currently selected —
+        // this endpoint takes no size/color params at all, unlike the list endpoint.
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"FacetScopeTest{marker}", 20m, sizes: ["S"], colors: ["Red"]);
+        await CreateTestProductAsync($"FacetScopeTest{marker}", 20m, sizes: ["XL"], colors: ["Blue"]);
+
+        var response = await PublicClient().GetAsync($"/api/products/facets?search=FacetScopeTest{marker}");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var sizes = body.GetProperty("sizes").EnumerateArray().Select(s => s.GetString()).ToList();
+        sizes.Should().Contain(["S", "XL"]);
+    }
+
+    [Fact]
+    public async Task Facets_NoMatches_ReturnsEmptyListsNotAnError()
+    {
+        var response = await PublicClient().GetAsync($"/api/products/facets?search={Guid.NewGuid():N}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("sizes").GetArrayLength().Should().Be(0);
+        body.GetProperty("colors").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Update_UnknownSlug_Returns404()
     {
         var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);

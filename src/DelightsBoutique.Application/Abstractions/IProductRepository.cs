@@ -25,6 +25,11 @@ public interface IProductRepository
 
     Task<PagedResult<ProductDto>> SearchAsync(ProductSearchFilter filter, CancellationToken ct);
 
+    /// <summary>Distinct sizes/colors across every product matching the given scope —
+    /// for building filter UI that shows every available option across the whole category,
+    /// not just whatever happens to be on the current page.</summary>
+    Task<ProductFacetsDto> GetFacetsAsync(ProductFacetsFilter filter, CancellationToken ct);
+
     /// <summary>Preserves the input slug order (admin-curated display order) — SQL's
     /// WHERE slug IN (...) does not guarantee this. Silently drops slugs that no longer
     /// resolve to a product.</summary>

@@ -20,6 +20,19 @@ public class ProductsController(IMediator mediator) : ControllerBase
         return Ok(result);
     }
 
+    // Distinct sizes/colors across every product matching the given scope — not just
+    // whatever happens to be on the current page. Takes the same scope params as the
+    // list action, minus Sort/Page/Limit (not applicable) and minus size/color (those are
+    // what this reports options for, so narrowing by them would be self-defeating).
+    [HttpGet("facets")]
+    public async Task<IActionResult> Facets(
+        [FromQuery] string? category, [FromQuery] string? search, [FromQuery] Badge? badge,
+        [FromQuery] decimal? minPrice = null, [FromQuery] decimal? maxPrice = null, CancellationToken ct = default)
+    {
+        var result = await mediator.Send(new GetProductFacetsQuery(category, search, badge, minPrice, maxPrice), ct);
+        return Ok(result);
+    }
+
     [HttpGet("{slug}")]
     public async Task<IActionResult> GetBySlug(string slug, CancellationToken ct)
     {
