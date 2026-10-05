@@ -29,7 +29,7 @@ public class PermissionAuthorizationHandler(AppDbContext db) : AuthorizationHand
         if (staff is null || !staff.Active)
             return;
 
-        if (staff.Permissions.Contains(requirement.Permission))
+        if (requirement.Permissions.Any(staff.Permissions.Contains))
             context.Succeed(requirement);
     }
 }

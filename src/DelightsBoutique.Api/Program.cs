@@ -83,6 +83,7 @@ builder.Services.AddSingleton<IPhoneNormalizer, PhoneNormalizer>();
 builder.Services.AddSingleton<IOrderIdGenerator, OrderIdGenerator>();
 builder.Services.AddSingleton<IOrderPricingService, OrderPricingService>(); // stateless, safe as singleton
 builder.Services.AddScoped<IImageValidator, ImageSharpImageValidator>();
+builder.Services.AddScoped<IImageProcessor, ImageSharpImageProcessor>();
 builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
 
 // --- MediatR + idempotency/validation/audit pipeline ---
