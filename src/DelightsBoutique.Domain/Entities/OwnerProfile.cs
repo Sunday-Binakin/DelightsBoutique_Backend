@@ -23,4 +23,15 @@ public class OwnerProfile
         Phone = phone,
         PasswordHash = passwordHash
     };
+
+    /// <summary>Self-service only — deliberately excludes Email, unlike StaffMember's
+    /// admin-driven UpdateProfile. Changing the Owner's own login identifier has no
+    /// recovery path if it's wrong, since there is exactly one Owner account.</summary>
+    public void UpdateProfile(string? name, string? phone)
+    {
+        Name = name ?? Name;
+        Phone = phone ?? Phone;
+    }
+
+    public void ResetPassword(string newPasswordHash) => PasswordHash = newPasswordHash;
 }
