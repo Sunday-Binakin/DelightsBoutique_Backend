@@ -8,8 +8,9 @@ namespace DelightsBoutique.Infrastructure.Persistence;
 
 /// <summary>
 /// Development-only (guarded at the call site in Program.cs, never runs in Staging/
-/// Production) — gives frontend developers a known, fixed staff login plus a small
-/// non-empty product catalog on a fresh local database, instead of starting from an
+/// Production) — gives frontend developers a known, fixed staff login, one single-
+/// permission account per Permission value for exercising permission boundaries locally,
+/// and a product catalog large enough to exercise pagination, instead of starting from an
 /// empty storefront and no way in besides the console-logged one-time Owner password.
 /// Each piece checks for its own known identity before inserting, so it stays a no-op
 /// once seeded and never duplicates data across repeated local restarts.
@@ -19,17 +20,29 @@ public static class DevSeeder
     public const string DevStaffEmail = "staff@dev.local";
     public const string DevStaffPassword = "DevPassword123!";
 
+    private const int DemoProductCount = 120;
+
     public static async Task SeedAsync(IServiceProvider services)
     {
         var db = services.GetRequiredService<AppDbContext>();
+        var hasher = services.GetRequiredService<IPasswordHasher>();
 
         if (!await db.StaffMembers.AnyAsync(s => s.Email == DevStaffEmail))
         {
-            var hasher = services.GetRequiredService<IPasswordHasher>();
             // Full permission set — this is the one account meant for exercising every
             // admin screen locally, distinct from the Owner account's own singleton bypass.
             db.StaffMembers.Add(StaffMember.Create(
                 "Dev Staff", DevStaffEmail, null, Enum.GetValues<Permission>().ToList(), hasher.Hash(DevStaffPassword)));
+        }
+
+        // One account per permission, holding ONLY that permission — lets the frontend
+        // verify each permission boundary (a 403 on everything else) without juggling a
+        // single account's assigned set back and forth through the admin UI.
+        foreach (var permission in Enum.GetValues<Permission>())
+        {
+            var email = $"staff-{permission.ToString().ToLowerInvariant()}@dev.local";
+            if (!await db.StaffMembers.AnyAsync(s => s.Email == email))
+                db.StaffMembers.Add(StaffMember.Create($"Dev {permission}", email, null, [permission], hasher.Hash(DevStaffPassword)));
         }
 
         if (!await db.Categories.AnyAsync(c => c.Slug == "dresses"))
@@ -64,8 +77,39 @@ public static class DevSeeder
                 retailPrice: 150m, wholesalePrice: 110m, wholesaleMoq: 10, compareAtPrice: null,
                 tone: Tone.Gold, badge: null, stockStatus: StockStatus.LowStock,
                 colors: ["Tan"]));
+
+            foreach (var product in GenerateDemoCatalog())
+                db.Products.Add(product);
         }
 
         await db.SaveChangesAsync();
+    }
+
+    // Generated, not hand-written — 120 is enough to exercise pagination (default page
+    // size 20 → 6+ pages) without hand-authoring each row. Deterministic slugs/names so a
+    // re-seed (on an empty DB) always produces the same catalog.
+    private static IEnumerable<Product> GenerateDemoCatalog()
+    {
+        var categories = new[] { ("dresses", Tone.Rose), ("shoes", Tone.Charcoal), ("bags", Tone.Gold) };
+        var adjectives = new[] { "Classic", "Elegant", "Modern", "Vintage", "Chic", "Casual", "Bold", "Soft" };
+        var nouns = new[] { "Dress", "Heel", "Tote", "Sandal", "Gown", "Clutch", "Wrap", "Pump" };
+
+        for (var i = 1; i <= DemoProductCount - 3; i++)
+        {
+            var (categorySlug, tone) = categories[i % categories.Length];
+            var price = 50m + i % 20 * 15m;
+            var badge = i % 7 == 0 ? Badge.BestSeller : i % 5 == 0 ? Badge.New : (Badge?)null;
+            var stockStatus = i % 11 == 0 ? StockStatus.OutOfStock : i % 6 == 0 ? StockStatus.LowStock : StockStatus.InStock;
+
+            yield return Product.Create(
+                $"dev-product-{i}", $"{adjectives[i % adjectives.Length]} {nouns[i % nouns.Length]} {i}", categorySlug,
+                $"Demo product #{i}, generated for local pagination/testing.",
+                retailPrice: price,
+                wholesalePrice: i % 3 == 0 ? price * 0.75m : null,
+                wholesaleMoq: i % 3 == 0 ? 5 : null,
+                compareAtPrice: i % 8 == 0 ? price * 1.3m : null,
+                tone: tone, badge: badge, stockStatus: stockStatus,
+                sizes: ["S", "M", "L"], colors: ["Black", "Red"]);
+        }
     }
 }
