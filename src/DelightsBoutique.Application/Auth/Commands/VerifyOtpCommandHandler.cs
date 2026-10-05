@@ -21,7 +21,12 @@ public class VerifyOtpCommandHandler(
             var owner = await ownerRepository.GetByIdAsync(success.UserId, cancellationToken);
             if (owner is null) return new VerifyOtpFailed();
 
-            return new VerifyOtpSucceeded(owner.Id, "Owner", StaffId: null, owner.Email, owner.Name, Permissions: []);
+            // Owner bypasses every permission check (PermissionAuthorizationHandler succeeds
+            // on the Owner claim before looking at any specific permission) — report the
+            // full set here so the frontend can render the same admin UI it would for a
+            // staff member who happens to hold every permission, rather than special-casing
+            // "Owner" as a UI concept of its own.
+            return new VerifyOtpSucceeded(owner.Id, "Owner", StaffId: null, owner.Email, owner.Name, Permissions: Enum.GetValues<Permission>());
         }
 
         var staff = await staffRepository.GetByIdAsync(success.UserId, cancellationToken);

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using DelightsBoutique.Domain.Enums;
 using FluentAssertions;
 
 namespace DelightsBoutique.IntegrationTests;
@@ -27,11 +28,36 @@ public class AuthFlowTests(CustomWebApplicationFactory factory) : IClassFixture<
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var verifyBody = await ReadJsonAsync(verifyResponse);
         verifyBody.GetProperty("role").GetString().Should().Be("Owner");
+        // Owner bypasses every permission check — the frontend needs the full set reported
+        // so it can render the same admin UI it would for a staff member holding everything,
+        // rather than special-casing "Owner" as a UI concept of its own.
+        verifyBody.GetProperty("permissions").EnumerateArray().Should().HaveCount(Enum.GetValues<Permission>().Length);
 
         var sessionResponse = await client.GetAsync("/api/auth/session");
         sessionResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var sessionBody = await ReadJsonAsync(sessionResponse);
         sessionBody.GetProperty("email").GetString().Should().Be(CustomWebApplicationFactory.OwnerEmail);
+        sessionBody.GetProperty("permissions").EnumerateArray().Should().HaveCount(Enum.GetValues<Permission>().Length);
+    }
+
+    [Fact]
+    public async Task Login_VerifyOtp_Session_Staff_ReportsOnlyTheirOwnPermissions()
+    {
+        var client = CreateClient();
+
+        var loginResponse = await client.PostAsync("/api/auth/login", new { email = CustomWebApplicationFactory.ManageProductsStaffEmail, password = CustomWebApplicationFactory.KnownPassword });
+        var loginToken = (await ReadJsonAsync(loginResponse)).GetProperty("loginToken").GetString();
+        var code = factory.OtpEmailSender.SentCodes.Last(c => c.Email == CustomWebApplicationFactory.ManageProductsStaffEmail).Code;
+
+        var verifyResponse = await client.PostAsync("/api/auth/verify-otp", new { loginToken, code });
+        var verifyBody = await ReadJsonAsync(verifyResponse);
+        var verifyPermissions = verifyBody.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()).ToList();
+        verifyPermissions.Should().BeEquivalentTo(["manageProducts"]); // camelCase, matching every other enum this API returns
+
+        var sessionResponse = await client.GetAsync("/api/auth/session");
+        var sessionBody = await ReadJsonAsync(sessionResponse);
+        var sessionPermissions = sessionBody.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()).ToList();
+        sessionPermissions.Should().BeEquivalentTo(["manageProducts"]);
     }
 
     [Fact]
