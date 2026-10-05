@@ -183,6 +183,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    // Strictly Development-only, never Staging/Production — gives local frontend
+    // integration a known staff login and a non-empty catalog out of the box.
+    using var devSeedScope = app.Services.CreateScope();
+    await DevSeeder.SeedAsync(devSeedScope.ServiceProvider);
 }
 
 var configuredFileStorageRoot = app.Configuration["FileStorage:RootPath"] ?? Path.Combine("App_Data", "uploads");
