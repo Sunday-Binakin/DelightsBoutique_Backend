@@ -60,6 +60,28 @@ public class AdminContentControllerTests(CustomWebApplicationFactory factory) : 
     }
 
     [Fact]
+    public async Task UpdateFlashSale_WithCuratedSlugs_ReportsIsCuratedTrue()
+    {
+        var productsAdmin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
+        await productsAdmin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Update FS Category", tone = "Gold" });
+        var productResponse = await productsAdmin.PostAsync("/api/admin/products", new
+        {
+            name = $"Update FS Product {Guid.NewGuid():N}", categorySlug,
+            description = "d", retailPrice = 20m, tone = "Rose", stockStatus = "InStock"
+        });
+        var productSlug = (await TestAuthHelper.ReadJsonAsync(productResponse)).GetProperty("slug").GetString();
+
+        var admin = await ContentAdmin();
+        var response = await admin.PatchAsync("/api/admin/content/flash-sale", new { productSlugs = new[] { productSlug } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("isCurated").GetBoolean().Should().BeTrue();
+        body.GetProperty("products").EnumerateArray().Should().ContainSingle(p => p.GetProperty("slug").GetString() == productSlug);
+    }
+
+    [Fact]
     public async Task UpdateCollectionSection_HappyPath()
     {
         var admin = await ContentAdmin();

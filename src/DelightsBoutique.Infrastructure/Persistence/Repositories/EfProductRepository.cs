@@ -2,6 +2,7 @@ using DelightsBoutique.Application.Abstractions;
 using DelightsBoutique.Application.Common;
 using DelightsBoutique.Application.Products.Dtos;
 using DelightsBoutique.Domain.Entities;
+using DelightsBoutique.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace DelightsBoutique.Infrastructure.Persistence.Repositories;
@@ -105,6 +106,36 @@ public class EfProductRepository(AppDbContext db) : IProductRepository
         // Re-order to match input order (WHERE slug IN (...) gives no ordering guarantee);
         // silently drops any slug that no longer resolves to a product.
         return slugs.Where(bySlug.ContainsKey).Select(s => bySlug[s]).ToList();
+    }
+
+    public async Task<List<ProductDto>> GetAutoFillAsync(ProductAutoFillRule rule, int limit, CancellationToken ct)
+    {
+        var query = from p in db.Products.AsNoTracking()
+                    join c in db.Categories.AsNoTracking() on p.CategorySlug equals c.Slug into cj
+                    from c in cj.DefaultIfEmpty()
+                    where p.StockStatus != StockStatus.OutOfStock
+                    select new { p, CategoryName = c != null ? c.Name : p.CategorySlug };
+
+        query = rule switch
+        {
+            ProductAutoFillRule.Discounted => query
+                .Where(x => x.p.CompareAtPrice != null && x.p.CompareAtPrice > x.p.RetailPrice)
+                .OrderByDescending(x => x.p.CompareAtPrice! - x.p.RetailPrice),
+            ProductAutoFillRule.BestSeller => query
+                .Where(x => x.p.Badge == Badge.BestSeller)
+                .OrderByDescending(x => x.p.CreatedAt),
+            ProductAutoFillRule.WholesaleEligible => query
+                .Where(x => x.p.WholesalePrice != null)
+                .OrderByDescending(x => x.p.CreatedAt),
+            _ => query.OrderByDescending(x => x.p.CreatedAt) // Newest
+        };
+
+        return await query.Take(limit)
+            .Select(x => new ProductDto(x.p.Id, x.p.Slug, x.p.Name, x.p.CategorySlug, x.CategoryName,
+                x.p.Description, x.p.RetailPrice, x.p.WholesalePrice, x.p.WholesaleMoq, x.p.CompareAtPrice,
+                x.p.Rating, x.p.ReviewCount, x.p.Tone, x.p.Badge, x.p.StockStatus,
+                x.p.Sizes, x.p.Colors, x.p.ImageUrls, x.p.CreatedAt, x.p.UpdatedAt))
+            .ToListAsync(ct);
     }
 
     public Task<bool> SlugExistsAsync(string slug, CancellationToken ct) =>

@@ -4,6 +4,18 @@ using DelightsBoutique.Domain.Entities;
 
 namespace DelightsBoutique.Application.Abstractions;
 
+/// <summary>Fallback rule for auto-filling a curated product list (flash sale,
+/// collection section) when the admin hasn't picked specific slugs for it.</summary>
+public enum ProductAutoFillRule
+{
+    /// <summary>Discounted: CompareAtPrice set and higher than RetailPrice — the existing
+    /// "this product is on sale" signal, used for flash sale.</summary>
+    Discounted,
+    Newest,
+    BestSeller,
+    WholesaleEligible
+}
+
 public interface IProductRepository
 {
     Task<ProductDto?> GetBySlugAsync(string slug, CancellationToken ct);
@@ -17,6 +29,10 @@ public interface IProductRepository
     /// WHERE slug IN (...) does not guarantee this. Silently drops slugs that no longer
     /// resolve to a product.</summary>
     Task<List<ProductDto>> GetBySlugsAsync(IReadOnlyList<string> slugs, CancellationToken ct);
+
+    /// <summary>Excludes OutOfStock — an auto-filled marketing section shouldn't feature
+    /// something that can't actually be bought.</summary>
+    Task<List<ProductDto>> GetAutoFillAsync(ProductAutoFillRule rule, int limit, CancellationToken ct);
 
     Task<bool> SlugExistsAsync(string slug, CancellationToken ct);
 
