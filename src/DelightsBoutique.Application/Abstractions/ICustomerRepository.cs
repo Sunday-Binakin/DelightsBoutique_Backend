@@ -10,6 +10,10 @@ public interface ICustomerRepository
 {
     Task<PagedResult<CustomerDto>> SearchAsync(CustomerSearchFilter filter, CancellationToken ct);
 
+    /// <summary>Same Search text as SearchAsync, but never filtered by CustomerType/
+    /// WholesaleOnly — the whole point is reporting how many fall into each type.</summary>
+    Task<CustomerCountsDto> GetCountsAsync(string? search, CancellationToken ct);
+
     /// <summary>Null if this phone has no orders — "customer" is defined as an aggregation
     /// over Orders, so a phone with zero orders isn't a customer yet, regardless of any
     /// CustomerFlag row that might exist for it.</summary>

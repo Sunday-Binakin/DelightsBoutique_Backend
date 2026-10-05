@@ -14,10 +14,17 @@ namespace DelightsBoutique.Api.Controllers;
 public class AdminCustomersController(IMediator mediator) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] bool? wholesaleOnly,
+    public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] CustomerType? customerType, [FromQuery] bool? wholesaleOnly,
         [FromQuery] int page = 1, [FromQuery] int limit = 20, CancellationToken ct = default)
     {
-        var result = await mediator.Send(new GetCustomersQuery(search, wholesaleOnly, page, limit), ct);
+        var result = await mediator.Send(new GetCustomersQuery(search, customerType, wholesaleOnly, page, limit), ct);
+        return Ok(result);
+    }
+
+    [HttpGet("counts")]
+    public async Task<IActionResult> Counts([FromQuery] string? search, CancellationToken ct)
+    {
+        var result = await mediator.Send(new GetCustomerCountsQuery(search), ct);
         return Ok(result);
     }
 
