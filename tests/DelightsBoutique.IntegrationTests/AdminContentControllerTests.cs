@@ -28,6 +28,35 @@ public class AdminContentControllerTests(CustomWebApplicationFactory factory) : 
     }
 
     [Fact]
+    public async Task GetSiteSettings_ReturnsNotificationFields_UnlikeThePublicEndpoint()
+    {
+        var admin = await ContentAdmin();
+        var notificationEmail = $"owner-{Guid.NewGuid():N}@test.local";
+        await admin.PatchAsync("/api/admin/content/site-settings", new
+        {
+            notifyByEmail = true, notificationEmail, notifyByWhatsapp = false
+        });
+
+        var response = await admin.GetAsync("/api/admin/content/site-settings");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("notifyByEmail").GetBoolean().Should().BeTrue();
+        body.GetProperty("notificationEmail").GetString().Should().Be(notificationEmail);
+        body.GetProperty("notifyByWhatsapp").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetSiteSettings_WithWrongPermission_Returns403()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ActiveStaffEmail); // ManageOrders, not ManageContent
+
+        var response = await client.GetAsync("/api/admin/content/site-settings");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task ReplaceBanner_HappyPath()
     {
         var admin = await ContentAdmin();

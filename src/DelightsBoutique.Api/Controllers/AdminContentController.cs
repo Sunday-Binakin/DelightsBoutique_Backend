@@ -2,6 +2,7 @@ using System.Text.Json;
 using DelightsBoutique.Api.Filters;
 using DelightsBoutique.Application.Content.Commands;
 using DelightsBoutique.Application.Content.Dtos;
+using DelightsBoutique.Application.Content.Queries;
 using DelightsBoutique.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,10 @@ namespace DelightsBoutique.Api.Controllers;
 [RequirePermission(Permission.ManageContent)]
 public class AdminContentController(IMediator mediator) : ControllerBase
 {
+    [HttpGet("site-settings")]
+    public async Task<IActionResult> GetSiteSettings(CancellationToken ct) =>
+        Ok(await mediator.Send(new GetAdminSiteSettingsQuery(), ct));
+
     [HttpPatch("site-settings")]
     public async Task<IActionResult> UpdateSiteSettings(UpdateSiteSettingsCommand command, CancellationToken ct) =>
         Ok(await mediator.Send(command, ct));
