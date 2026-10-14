@@ -6,8 +6,9 @@ namespace DelightsBoutique.Api.Auth;
 
 /// <summary>
 /// Dynamically builds an <see cref="AuthorizationPolicy"/> for any policy name shaped
-/// "Permission:{value}" — backs <see cref="RequirePermissionAttribute"/> so a new
-/// Permission enum value never needs a matching AddPolicy() call registered by hand.
+/// "Permission:{value}" or "Permission:{value1},{value2},..." (any-of) — backs
+/// <see cref="RequirePermissionAttribute"/> so a new Permission enum value never needs a
+/// matching AddPolicy() call registered by hand.
 /// </summary>
 public class PermissionPolicyProvider(IOptions<AuthorizationOptions> options) : IAuthorizationPolicyProvider
 {
@@ -20,11 +21,18 @@ public class PermissionPolicyProvider(IOptions<AuthorizationOptions> options) : 
 
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
-        if (policyName.StartsWith(Prefix, StringComparison.Ordinal) &&
-            Enum.TryParse<Permission>(policyName[Prefix.Length..], out var permission))
+        if (policyName.StartsWith(Prefix, StringComparison.Ordinal))
         {
+            var names = policyName[Prefix.Length..].Split(',');
+            var permissions = new Permission[names.Length];
+            for (var i = 0; i < names.Length; i++)
+            {
+                if (!Enum.TryParse(names[i], out permissions[i]))
+                    return _fallback.GetPolicyAsync(policyName); // malformed — not actually one of ours
+            }
+
             var policy = new AuthorizationPolicyBuilder()
-                .AddRequirements(new PermissionRequirement(permission))
+                .AddRequirements(new PermissionRequirement(permissions))
                 .Build();
             return Task.FromResult<AuthorizationPolicy?>(policy);
         }

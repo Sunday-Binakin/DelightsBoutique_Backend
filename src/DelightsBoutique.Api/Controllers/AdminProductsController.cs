@@ -47,13 +47,21 @@ public class AdminProductsController(IMediator mediator) : ControllerBase
         return deleted ? NoContent() : NotFound();
     }
 
+    private const int MaxCsvBytes = 2_097_152; // 2MB — generous for a product CSV
+
     [HttpPost("bulk-upload")]
-    [RequestSizeLimit(2_097_152)] // 2MB — generous for a product CSV; same accepted Kestrel
-    // 400-vs-413 caveat documented on OrdersController.UploadPaymentProof applies here too.
+    // Kestrel's own ceiling, set above MaxCsvBytes — same reasoning as
+    // AdminUploadsController.UploadImage: keeps the explicit size check below reachable
+    // for a realistically-oversized file instead of hitting Kestrel's unfixable raw
+    // ProblemDetails response (the caveat OrdersController.UploadPaymentProof accepted).
+    [RequestSizeLimit(4_194_304)]
     public async Task<IActionResult> BulkUpload(IFormFile? file, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
             throw new ValidationException([new ValidationFailure("file", "file is required.")]);
+
+        if (file.Length > MaxCsvBytes)
+            throw new ValidationException([new ValidationFailure("file", "File exceeds 2MB.")]);
 
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);

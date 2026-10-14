@@ -25,7 +25,14 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         catch (ValidationException ex)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            var fields = ex.Errors.GroupBy(e => e.PropertyName)
+            // FluentValidation's default PropertyName is the raw C# property (PascalCase,
+            // e.g. "Email") unless a validator hand-constructs a ValidationFailure with its
+            // own lowercase name (several do, elsewhere in this codebase). Dictionary keys
+            // are never touched by the JSON serializer's camelCase policy — that only
+            // applies to reflected property names — so without this, "fields" came back
+            // inconsistently cased depending on which validator produced the error. Fixed
+            // centrally here, once, rather than hand-naming every RuleFor(...) call.
+            var fields = ex.Errors.GroupBy(e => ToCamelCase(e.PropertyName))
                 .ToDictionary(g => g.Key, g => g.First().ErrorMessage);
             await context.Response.WriteAsJsonAsync(new
             {
@@ -77,4 +84,10 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             });
         }
     }
+
+    // Per dot-separated segment, so a nested path like "Items[0].Slug" (from
+    // RuleForEach/ChildRules) becomes "items[0].slug", not just its first letter touched.
+    public static string ToCamelCase(string propertyName) =>
+        string.Join('.', propertyName.Split('.').Select(segment =>
+            segment.Length == 0 ? segment : char.ToLowerInvariant(segment[0]) + segment[1..]));
 }

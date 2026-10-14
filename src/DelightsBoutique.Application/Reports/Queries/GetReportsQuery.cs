@@ -23,7 +23,8 @@ public class GetReportsQueryHandler(IReportsRepository reports) : IRequestHandle
         var topProducts = await reports.GetTopProductsAsync(filter, ct);
         var statusBreakdown = await reports.GetStatusBreakdownAsync(filter, ct);
         var paymentBreakdown = await reports.GetPaymentBreakdownAsync(filter, ct);
+        var dailySeries = await reports.GetDailySeriesAsync(filter, ct);
 
-        return new ReportsDto(summary, topProducts, statusBreakdown, paymentBreakdown);
+        return new ReportsDto(summary, topProducts, statusBreakdown, paymentBreakdown, dailySeries);
     }
 }

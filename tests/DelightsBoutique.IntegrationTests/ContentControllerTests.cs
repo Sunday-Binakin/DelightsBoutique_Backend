@@ -136,8 +136,73 @@ public class ContentControllerTests(CustomWebApplicationFactory factory) : IClas
 
         var publicResponse = await PublicClient().GetAsync("/api/content/flash-sale");
         var body = await TestAuthHelper.ReadJsonAsync(publicResponse);
+        body.GetProperty("isCurated").GetBoolean().Should().BeTrue();
         var products = body.GetProperty("products").EnumerateArray().ToList();
         products.Should().ContainSingle(p => p.GetProperty("slug").GetString() == productSlug);
         products[0].GetProperty("name").GetString().Should().NotBeNullOrEmpty(); // fully resolved, not just the slug
+    }
+
+    [Fact]
+    public async Task FlashSale_NoCuratedSlugs_AutoFillsFromDiscountedProducts_AndReportsIsCuratedFalse()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Discount Category", tone = "Gold" });
+        var productResponse = await admin.PostAsync("/api/admin/products", new
+        {
+            name = $"Discounted Product {Guid.NewGuid():N}", categorySlug,
+            description = "d", retailPrice = 20m, compareAtPrice = 40m, tone = "Rose", stockStatus = "InStock"
+        });
+        var productSlug = (await TestAuthHelper.ReadJsonAsync(productResponse)).GetProperty("slug").GetString();
+
+        var contentAdmin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageContentStaffEmail);
+        await contentAdmin.PatchAsync("/api/admin/content/flash-sale", new { productSlugs = Array.Empty<string>() });
+
+        var publicResponse = await PublicClient().GetAsync("/api/content/flash-sale");
+        var body = await TestAuthHelper.ReadJsonAsync(publicResponse);
+        body.GetProperty("isCurated").GetBoolean().Should().BeFalse();
+        body.GetProperty("products").EnumerateArray().Should().Contain(p => p.GetProperty("slug").GetString() == productSlug);
+    }
+
+    [Fact]
+    public async Task CollectionSection_NoCuratedSlugs_AutoFillsEachList_AndReportsIsCuratedFalse()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Collection Category", tone = "Gold" });
+
+        var bestSellerResponse = await admin.PostAsync("/api/admin/products", new
+        {
+            name = $"Best Seller {Guid.NewGuid():N}", categorySlug,
+            description = "d", retailPrice = 30m, badge = "BestSeller", tone = "Rose", stockStatus = "InStock"
+        });
+        var bestSellerSlug = (await TestAuthHelper.ReadJsonAsync(bestSellerResponse)).GetProperty("slug").GetString();
+
+        var wholesaleResponse = await admin.PostAsync("/api/admin/products", new
+        {
+            name = $"Wholesale Pick {Guid.NewGuid():N}", categorySlug,
+            description = "d", retailPrice = 30m, wholesalePrice = 20m, tone = "Rose", stockStatus = "InStock"
+        });
+        var wholesaleSlug = (await TestAuthHelper.ReadJsonAsync(wholesaleResponse)).GetProperty("slug").GetString();
+
+        var contentAdmin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageContentStaffEmail);
+        await contentAdmin.PatchAsync("/api/admin/content/collection-section", new
+        {
+            newArrivalsSlugs = Array.Empty<string>(),
+            bestSellersSlugs = Array.Empty<string>(),
+            wholesalePicksSlugs = Array.Empty<string>()
+        });
+
+        var publicResponse = await PublicClient().GetAsync("/api/content/collection-section");
+        var body = await TestAuthHelper.ReadJsonAsync(publicResponse);
+
+        body.GetProperty("newArrivalsCurated").GetBoolean().Should().BeFalse();
+        body.GetProperty("newArrivals").EnumerateArray().Should().NotBeEmpty();
+
+        body.GetProperty("bestSellersCurated").GetBoolean().Should().BeFalse();
+        body.GetProperty("bestSellers").EnumerateArray().Should().Contain(p => p.GetProperty("slug").GetString() == bestSellerSlug);
+
+        body.GetProperty("wholesalePicksCurated").GetBoolean().Should().BeFalse();
+        body.GetProperty("wholesalePicks").EnumerateArray().Should().Contain(p => p.GetProperty("slug").GetString() == wholesaleSlug);
     }
 }

@@ -7,7 +7,8 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
 {
     private AuthTestClient PublicClient() => new(factory.CreateClient());
 
-    private async Task<(string Slug, AuthTestClient Admin)> CreateTestProductAsync(string namePrefix, decimal retailPrice, string? badge = null)
+    private async Task<(string Slug, AuthTestClient Admin)> CreateTestProductAsync(
+        string namePrefix, decimal retailPrice, string? badge = null, string[]? sizes = null, string[]? colors = null, string? description = null)
     {
         var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
         var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
@@ -16,8 +17,8 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var name = $"{namePrefix} {Guid.NewGuid():N}";
         var body = new
         {
-            name, categorySlug, description = "integration test product",
-            retailPrice, tone = "Rose", stockStatus = "InStock", badge
+            name, categorySlug, description = description ?? "integration test product",
+            retailPrice, tone = "Rose", stockStatus = "InStock", badge, sizes, colors
         };
         var response = await admin.PostAsync("/api/admin/products", body);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -97,6 +98,81 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
     }
 
     [Fact]
+    public async Task Search_MultiWord_RequiresEachWordSomewhereInNameOrDescription_NotTheLiteralPhrase()
+    {
+        var marker = $"MwTest{Guid.NewGuid():N}"[..20];
+        // Each word appears, but in different fields and not as a contiguous phrase —
+        // proves AND-across-words, OR-across-fields, not a literal "word1 word2" substring match.
+        var (slug, _) = await CreateTestProductAsync($"{marker}Alpha", 20m, description: $"has the {marker}Beta keyword too");
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}Alpha%20{marker}Beta");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(slug);
+    }
+
+    [Fact]
+    public async Task Search_MultiWord_AllWordsMustMatch_MissingOneExcludesTheProduct()
+    {
+        var marker = $"MwMiss{Guid.NewGuid():N}"[..20];
+        var (slug, _) = await CreateTestProductAsync($"{marker}Only", 20m);
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}Only%20{marker}NeverAppearsAnywhere");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().NotContain(slug);
+    }
+
+    [Fact]
+    public async Task Search_NameMatch_RanksBeforeDescriptionOnlyMatch_EvenWhenOlder()
+    {
+        var marker = $"RankTest{Guid.NewGuid():N}"[..20];
+        var (nameMatchSlug, _) = await CreateTestProductAsync($"{marker}", 20m); // created first == older
+        await Task.Delay(50); // CreatedAt granularity safety margin
+        var (descriptionOnlySlug, _) = await CreateTestProductAsync("Unrelated", 20m, description: $"mentions {marker} in passing"); // newer
+
+        var response = await PublicClient().GetAsync($"/api/products?search={marker}"); // default sort is newest-first
+
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.IndexOf(nameMatchSlug).Should().BeLessThan(slugs.IndexOf(descriptionOnlySlug),
+            "a Name match should outrank a newer Description-only match despite the default newest-first sort");
+    }
+
+    [Fact]
+    public async Task Search_MatchesCategoryName_NotJustProductNameOrDescription()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categoryName = $"Category{Guid.NewGuid():N}";
+        var categorySlug = categoryName.ToLowerInvariant()[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = categoryName, tone = "Rose" });
+        var productResponse = await admin.PostAsync("/api/admin/products", new
+        {
+            name = "Totally Unrelated Name", categorySlug,
+            description = "no overlap with the category name either", retailPrice = 20m, tone = "Rose", stockStatus = "InStock"
+        });
+        var slug = (await TestAuthHelper.ReadJsonAsync(productResponse)).GetProperty("slug").GetString();
+
+        var response = await PublicClient().GetAsync($"/api/products?search={categoryName}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var slugs = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(slug);
+    }
+
+    [Fact]
+    public async Task Search_EmptyOrWhitespaceTerm_ReturnsCatalogUnfiltered()
+    {
+        var unfiltered = await PublicClient().GetAsync("/api/products");
+        var withBlankSearch = await PublicClient().GetAsync("/api/products?search=%20");
+
+        var unfilteredTotal = (await TestAuthHelper.ReadJsonAsync(unfiltered)).GetProperty("total").GetInt32();
+        var blankTotal = (await TestAuthHelper.ReadJsonAsync(withBlankSearch)).GetProperty("total").GetInt32();
+        blankTotal.Should().Be(unfilteredTotal);
+    }
+
+    [Fact]
     public async Task Search_SortByPriceAsc_OrdersResultsAscending()
     {
         var marker = Guid.NewGuid().ToString("N")[..8];
@@ -109,6 +185,107 @@ public class ProductsControllerTests(CustomWebApplicationFactory factory) : ICla
         var body = await TestAuthHelper.ReadJsonAsync(response);
         var prices = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("retailPrice").GetDecimal()).ToList();
         prices.Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public async Task Search_PriceRange_FiltersServerSide_NotJustTheLoadedPage()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"PriceTest{marker}Cheap", 10m);
+        var (midSlug, _) = await CreateTestProductAsync($"PriceTest{marker}Mid", 40m);
+        await CreateTestProductAsync($"PriceTest{marker}Expensive", 200m);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=PriceTest{marker}&minPrice=30&maxPrice=50");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().ContainSingle().Which.Should().Be(midSlug);
+        body.GetProperty("total").GetInt32().Should().Be(1); // total reflects the filter, not the unfiltered catalogue
+    }
+
+    [Fact]
+    public async Task Search_BySize_MatchesProductsWithAnyRequestedSize()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        var (mediumSlug, _) = await CreateTestProductAsync($"SizeTest{marker}", 20m, sizes: ["S", "M"]);
+        var (largeOnlySlug, _) = await CreateTestProductAsync($"SizeTest{marker}", 20m, sizes: ["XL"]);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=SizeTest{marker}&size=M");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(mediumSlug);
+        slugs.Should().NotContain(largeOnlySlug);
+    }
+
+    [Fact]
+    public async Task Search_ByColor_MatchesProductsWithAnyRequestedColor()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        var (redSlug, _) = await CreateTestProductAsync($"ColorTest{marker}", 20m, colors: ["Red", "Blue"]);
+        var (greenOnlySlug, _) = await CreateTestProductAsync($"ColorTest{marker}", 20m, colors: ["Green"]);
+
+        var response = await PublicClient().GetAsync($"/api/products?search=ColorTest{marker}&color=Red");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var slugs = body.GetProperty("data").EnumerateArray().Select(p => p.GetProperty("slug").GetString()).ToList();
+        slugs.Should().Contain(redSlug);
+        slugs.Should().NotContain(greenOnlySlug);
+    }
+
+    [Fact]
+    public async Task Search_FilterCombinationWithNoMatches_ReturnsEmptyPage_NotAnError()
+    {
+        var response = await PublicClient().GetAsync($"/api/products?size={Guid.NewGuid():N}&color={Guid.NewGuid():N}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("data").GetArrayLength().Should().Be(0);
+        body.GetProperty("total").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Facets_ReturnsDistinctSizesAndColorsAcrossTheWholeScope_NotJustOnePage()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"FacetTest{marker}A", 20m, sizes: ["S", "M"], colors: ["Red"]);
+        await CreateTestProductAsync($"FacetTest{marker}B", 20m, sizes: ["XL"], colors: ["Blue"]);
+
+        var response = await PublicClient().GetAsync($"/api/products/facets?search=FacetTest{marker}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var sizes = body.GetProperty("sizes").EnumerateArray().Select(s => s.GetString()).ToList();
+        var colors = body.GetProperty("colors").EnumerateArray().Select(c => c.GetString()).ToList();
+        sizes.Should().BeEquivalentTo("S", "M", "XL");
+        colors.Should().BeEquivalentTo("Red", "Blue");
+    }
+
+    [Fact]
+    public async Task Facets_NotNarrowedByItsOwnSizeOrColorDimension()
+    {
+        // Facets must report every option the scope has, even ones not currently selected —
+        // this endpoint takes no size/color params at all, unlike the list endpoint.
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await CreateTestProductAsync($"FacetScopeTest{marker}", 20m, sizes: ["S"], colors: ["Red"]);
+        await CreateTestProductAsync($"FacetScopeTest{marker}", 20m, sizes: ["XL"], colors: ["Blue"]);
+
+        var response = await PublicClient().GetAsync($"/api/products/facets?search=FacetScopeTest{marker}");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var sizes = body.GetProperty("sizes").EnumerateArray().Select(s => s.GetString()).ToList();
+        sizes.Should().Contain(["S", "XL"]);
+    }
+
+    [Fact]
+    public async Task Facets_NoMatches_ReturnsEmptyListsNotAnError()
+    {
+        var response = await PublicClient().GetAsync($"/api/products/facets?search={Guid.NewGuid():N}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("sizes").GetArrayLength().Should().Be(0);
+        body.GetProperty("colors").GetArrayLength().Should().Be(0);
     }
 
     [Fact]

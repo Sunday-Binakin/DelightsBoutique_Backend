@@ -14,17 +14,19 @@ public class GetReportsQueryHandlerTests
     private GetReportsQueryHandler CreateHandler() => new(_reports.Object);
 
     [Fact]
-    public async Task Handle_AssemblesAllFourSectionsFromTheRepository()
+    public async Task Handle_AssemblesAllFiveSectionsFromTheRepository()
     {
-        var summary = new ReportsSummaryDto(10, 2, 500m);
-        var topProducts = new List<TopProductDto> { new("slug-1", "Product One", 5, 250m) };
-        var statusBreakdown = new List<StatusBreakdownEntry> { new(OrderStatus.Cancelled, 2) };
-        var paymentBreakdown = new List<PaymentBreakdownEntry> { new(PaymentMethod.MobileMoney, 10) };
+        var summary = new ReportsSummaryDto(10, 2, 500m, 100m, 50m);
+        var topProducts = new List<TopProductDto> { new("slug-1", "Product One", 5, 250m, "Dresses") };
+        var statusBreakdown = new List<StatusBreakdownEntry> { new(OrderStatus.Cancelled, 2, 50m) };
+        var paymentBreakdown = new List<PaymentBreakdownEntry> { new(PaymentMethod.MobileMoney, 10, 500m) };
+        var dailySeries = new List<DailyRevenueEntry> { new(new DateOnly(2026, 1, 1), 3, 150m) };
 
         _reports.Setup(r => r.GetSummaryAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(summary);
         _reports.Setup(r => r.GetTopProductsAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(topProducts);
         _reports.Setup(r => r.GetStatusBreakdownAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(statusBreakdown);
         _reports.Setup(r => r.GetPaymentBreakdownAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(paymentBreakdown);
+        _reports.Setup(r => r.GetDailySeriesAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(dailySeries);
 
         var result = await CreateHandler().Handle(new GetReportsQuery(null, null, null, null, null), CancellationToken.None);
 
@@ -32,15 +34,17 @@ public class GetReportsQueryHandlerTests
         result.TopProducts.Should().BeEquivalentTo(topProducts);
         result.StatusBreakdown.Should().BeEquivalentTo(statusBreakdown);
         result.PaymentBreakdown.Should().BeEquivalentTo(paymentBreakdown);
+        result.DailySeries.Should().BeEquivalentTo(dailySeries);
     }
 
     [Fact]
     public async Task Handle_PassesQueryFiltersThroughToTheRepository()
     {
-        _reports.Setup(r => r.GetSummaryAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(new ReportsSummaryDto(0, 0, 0m));
+        _reports.Setup(r => r.GetSummaryAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync(new ReportsSummaryDto(0, 0, 0m, 0m, 0m));
         _reports.Setup(r => r.GetTopProductsAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _reports.Setup(r => r.GetStatusBreakdownAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
         _reports.Setup(r => r.GetPaymentBreakdownAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        _reports.Setup(r => r.GetDailySeriesAsync(It.IsAny<ReportsFilter>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         var query = new GetReportsQuery(DateTime.UtcNow.AddDays(-7), DateTime.UtcNow, FulfillmentType.Delivery, PaymentMethod.BankTransfer, "cat-1");
         await CreateHandler().Handle(query, CancellationToken.None);

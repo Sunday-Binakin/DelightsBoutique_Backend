@@ -11,4 +11,6 @@ public class EfOwnerProfileRepository(AppDbContext db) : IOwnerProfileRepository
 
     public Task<OwnerProfile?> GetByIdAsync(Guid id, CancellationToken ct) =>
         db.OwnerProfiles.FirstOrDefaultAsync(o => o.Id == id, ct);
+
+    public Task UpdateAsync(OwnerProfile owner, CancellationToken ct) => db.SaveChangesAsync(ct);
 }

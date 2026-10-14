@@ -85,4 +85,84 @@ public class AdminCustomersControllerTests(CustomWebApplicationFactory factory) 
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task List_CustomerTypeRetail_ExcludesWholesaleCustomers()
+    {
+        var marker = Random.Shared.Next(1000000, 9999999).ToString();
+        var retailPhone = $"024{marker}1";
+        var wholesalePhone = $"024{marker}2";
+        await CreateOrderAsync(retailPhone);
+        await CreateOrderAsync(wholesalePhone);
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageCustomersStaffEmail);
+        await client.PatchAsync($"/api/admin/customers/{wholesalePhone}", new { wholesale = true });
+
+        var response = await client.GetAsync($"/api/admin/customers?search={marker}&customerType=retail");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var phones = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data")
+            .EnumerateArray().Select(x => x.GetProperty("phone").GetString()).ToList();
+        phones.Should().Contain(retailPhone);
+        phones.Should().NotContain(wholesalePhone);
+    }
+
+    [Fact]
+    public async Task List_CustomerTypeWholesale_OnlyReturnsWholesaleCustomers()
+    {
+        var marker = Random.Shared.Next(1000000, 9999999).ToString();
+        var retailPhone = $"024{marker}1";
+        var wholesalePhone = $"024{marker}2";
+        await CreateOrderAsync(retailPhone);
+        await CreateOrderAsync(wholesalePhone);
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageCustomersStaffEmail);
+        await client.PatchAsync($"/api/admin/customers/{wholesalePhone}", new { wholesale = true });
+
+        var response = await client.GetAsync($"/api/admin/customers?search={marker}&customerType=wholesale");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var phones = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("data")
+            .EnumerateArray().Select(x => x.GetProperty("phone").GetString()).ToList();
+        phones.Should().Contain(wholesalePhone);
+        phones.Should().NotContain(retailPhone);
+    }
+
+    [Fact]
+    public async Task List_InvalidCustomerType_Returns400()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageCustomersStaffEmail);
+
+        var response = await client.GetAsync("/api/admin/customers?customerType=notarealtype");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Counts_ReturnsTotalRetailAndWholesaleBreakdown()
+    {
+        var marker = Random.Shared.Next(1000000, 9999999).ToString();
+        var retailPhone = $"024{marker}1";
+        var wholesalePhone = $"024{marker}2";
+        await CreateOrderAsync(retailPhone);
+        await CreateOrderAsync(wholesalePhone);
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageCustomersStaffEmail);
+        await client.PatchAsync($"/api/admin/customers/{wholesalePhone}", new { wholesale = true });
+
+        var response = await client.GetAsync($"/api/admin/customers/counts?search={marker}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("total").GetInt32().Should().Be(2);
+        body.GetProperty("retail").GetInt32().Should().Be(1);
+        body.GetProperty("wholesale").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Counts_WithWrongPermission_Returns403()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ActiveStaffEmail); // ManageOrders, not ManageCustomers
+
+        var response = await client.GetAsync("/api/admin/customers/counts");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
 }

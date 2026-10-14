@@ -26,6 +26,16 @@ public class AdminAuditLogControllerTests(CustomWebApplicationFactory factory) :
     }
 
     [Fact]
+    public async Task List_AsNonOwnerStaffWithViewAuditLogPermission_Succeeds()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageStaffAndAuditStaffEmail);
+
+        var response = await client.GetAsync("/api/admin/audit-log");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task List_AfterAdminMutation_ShowsTheEntry_SearchableByAction()
     {
         var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);

@@ -9,7 +9,8 @@ public class LoginCommandHandler(
     IStaffRepository staffRepository,
     IPasswordHasher passwordHasher,
     IOtpChallengeStore otpChallengeStore,
-    IOtpEmailSender otpEmailSender) : IRequestHandler<LoginCommand, LoginResult>
+    IOtpEmailSender otpEmailSender,
+    IRuntimeEnvironment runtimeEnvironment) : IRequestHandler<LoginCommand, LoginResult>
 {
     public async Task<LoginResult> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
@@ -22,7 +23,7 @@ public class LoginCommandHandler(
 
             var (loginToken, code) = await otpChallengeStore.CreateAsync(owner.Id, "Owner", cancellationToken);
             await otpEmailSender.SendOtpAsync(owner.Email, owner.Name, code, cancellationToken);
-            return new LoginSucceeded(loginToken);
+            return new LoginSucceeded(loginToken, runtimeEnvironment.IsDevelopment ? code : null);
         }
 
         var staff = await staffRepository.GetByEmailAsync(request.Email, cancellationToken);
@@ -38,6 +39,6 @@ public class LoginCommandHandler(
 
         var (staffLoginToken, staffCode) = await otpChallengeStore.CreateAsync(staff.Id, "Staff", cancellationToken);
         await otpEmailSender.SendOtpAsync(staff.Email, staff.Name, staffCode, cancellationToken);
-        return new LoginSucceeded(staffLoginToken);
+        return new LoginSucceeded(staffLoginToken, runtimeEnvironment.IsDevelopment ? staffCode : null);
     }
 }

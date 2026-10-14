@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using DelightsBoutique.Application.Auth.Commands;
 using DelightsBoutique.Application.Auth.Dtos;
+using DelightsBoutique.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -21,6 +22,9 @@ public class AuthController(IMediator mediator) : ControllerBase
         var result = await mediator.Send(command, ct);
         return result switch
         {
+            // devCode is present only when the handler populated it (Development) — omitted
+            // entirely otherwise, not sent as null, so production responses are unchanged.
+            LoginSucceeded { DevCode: not null } s => Ok(new { loginToken = s.LoginToken, devCode = s.DevCode }),
             LoginSucceeded s => Ok(new { loginToken = s.LoginToken }),
             LoginStaffDeactivated => StatusCode(StatusCodes.Status403Forbidden,
                 new { error = new { code = "STAFF_DEACTIVATED", message = "This staff account is deactivated." } }),
@@ -47,7 +51,7 @@ public class AuthController(IMediator mediator) : ControllerBase
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
 
-        return Ok(new { role = success.Role, staffId = success.StaffId, email = success.Email, name = success.Name });
+        return Ok(new { role = success.Role, staffId = success.StaffId, email = success.Email, name = success.Name, permissions = success.Permissions });
     }
 
     [HttpPost("resend-otp")]
@@ -73,12 +77,20 @@ public class AuthController(IMediator mediator) : ControllerBase
         var role = User.FindFirst("role")?.Value ?? "";
         var staffIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
+        // Claims are stored as the raw enum name (set at verify-otp time via p.ToString()),
+        // not camelCase — parse back to Permission so the same JsonStringEnumConverter that
+        // camelCases verify-otp's response does the same here, instead of returning raw
+        // claim strings that would come back PascalCase and inconsistent with every other
+        // enum this API returns.
+        var permissions = User.FindAll("permission").Select(c => Enum.Parse<Permission>(c.Value)).ToList();
+
         return Ok(new
         {
             role,
             staffId = role == "Staff" ? staffIdClaim : null,
             email = User.FindFirst(ClaimTypes.Email)?.Value,
-            name = User.FindFirst("name")?.Value
+            name = User.FindFirst("name")?.Value,
+            permissions
         });
     }
 }

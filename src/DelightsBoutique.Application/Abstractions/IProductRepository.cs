@@ -4,6 +4,18 @@ using DelightsBoutique.Domain.Entities;
 
 namespace DelightsBoutique.Application.Abstractions;
 
+/// <summary>Fallback rule for auto-filling a curated product list (flash sale,
+/// collection section) when the admin hasn't picked specific slugs for it.</summary>
+public enum ProductAutoFillRule
+{
+    /// <summary>Discounted: CompareAtPrice set and higher than RetailPrice — the existing
+    /// "this product is on sale" signal, used for flash sale.</summary>
+    Discounted,
+    Newest,
+    BestSeller,
+    WholesaleEligible
+}
+
 public interface IProductRepository
 {
     Task<ProductDto?> GetBySlugAsync(string slug, CancellationToken ct);
@@ -13,10 +25,19 @@ public interface IProductRepository
 
     Task<PagedResult<ProductDto>> SearchAsync(ProductSearchFilter filter, CancellationToken ct);
 
+    /// <summary>Distinct sizes/colors across every product matching the given scope —
+    /// for building filter UI that shows every available option across the whole category,
+    /// not just whatever happens to be on the current page.</summary>
+    Task<ProductFacetsDto> GetFacetsAsync(ProductFacetsFilter filter, CancellationToken ct);
+
     /// <summary>Preserves the input slug order (admin-curated display order) — SQL's
     /// WHERE slug IN (...) does not guarantee this. Silently drops slugs that no longer
     /// resolve to a product.</summary>
     Task<List<ProductDto>> GetBySlugsAsync(IReadOnlyList<string> slugs, CancellationToken ct);
+
+    /// <summary>Excludes OutOfStock — an auto-filled marketing section shouldn't feature
+    /// something that can't actually be bought.</summary>
+    Task<List<ProductDto>> GetAutoFillAsync(ProductAutoFillRule rule, int limit, CancellationToken ct);
 
     Task<bool> SlugExistsAsync(string slug, CancellationToken ct);
 

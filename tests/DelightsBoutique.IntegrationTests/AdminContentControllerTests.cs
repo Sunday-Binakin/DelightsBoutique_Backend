@@ -28,6 +28,35 @@ public class AdminContentControllerTests(CustomWebApplicationFactory factory) : 
     }
 
     [Fact]
+    public async Task GetSiteSettings_ReturnsNotificationFields_UnlikeThePublicEndpoint()
+    {
+        var admin = await ContentAdmin();
+        var notificationEmail = $"owner-{Guid.NewGuid():N}@test.local";
+        await admin.PatchAsync("/api/admin/content/site-settings", new
+        {
+            notifyByEmail = true, notificationEmail, notifyByWhatsapp = false
+        });
+
+        var response = await admin.GetAsync("/api/admin/content/site-settings");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("notifyByEmail").GetBoolean().Should().BeTrue();
+        body.GetProperty("notificationEmail").GetString().Should().Be(notificationEmail);
+        body.GetProperty("notifyByWhatsapp").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetSiteSettings_WithWrongPermission_Returns403()
+    {
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ActiveStaffEmail); // ManageOrders, not ManageContent
+
+        var response = await client.GetAsync("/api/admin/content/site-settings");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task ReplaceBanner_HappyPath()
     {
         var admin = await ContentAdmin();
@@ -57,6 +86,28 @@ public class AdminContentControllerTests(CustomWebApplicationFactory factory) : 
         var response = await admin.PatchAsync("/api/admin/content/flash-sale", new { title = $"Sale {Guid.NewGuid():N}" });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UpdateFlashSale_WithCuratedSlugs_ReportsIsCuratedTrue()
+    {
+        var productsAdmin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"cat-{Guid.NewGuid():N}"[..20];
+        await productsAdmin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Update FS Category", tone = "Gold" });
+        var productResponse = await productsAdmin.PostAsync("/api/admin/products", new
+        {
+            name = $"Update FS Product {Guid.NewGuid():N}", categorySlug,
+            description = "d", retailPrice = 20m, tone = "Rose", stockStatus = "InStock"
+        });
+        var productSlug = (await TestAuthHelper.ReadJsonAsync(productResponse)).GetProperty("slug").GetString();
+
+        var admin = await ContentAdmin();
+        var response = await admin.PatchAsync("/api/admin/content/flash-sale", new { productSlugs = new[] { productSlug } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("isCurated").GetBoolean().Should().BeTrue();
+        body.GetProperty("products").EnumerateArray().Should().ContainSingle(p => p.GetProperty("slug").GetString() == productSlug);
     }
 
     [Fact]

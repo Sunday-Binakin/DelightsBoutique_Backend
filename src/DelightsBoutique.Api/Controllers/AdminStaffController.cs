@@ -2,6 +2,7 @@ using DelightsBoutique.Api.Filters;
 using DelightsBoutique.Application.Staff.Commands;
 using DelightsBoutique.Application.Staff.Dtos;
 using DelightsBoutique.Application.Staff.Queries;
+using DelightsBoutique.Domain.Enums;
 using FluentValidation;
 using FluentValidation.Results;
 using MediatR;
@@ -11,7 +12,7 @@ namespace DelightsBoutique.Api.Controllers;
 
 [ApiController]
 [Route("api/admin/staff")]
-[RequireOwner]
+[RequirePermission(Permission.ManageStaff)] // Owner still passes everything — PermissionAuthorizationHandler succeeds on the Owner claim before checking any specific permission
 public class AdminStaffController(IMediator mediator) : ControllerBase
 {
     [HttpGet]

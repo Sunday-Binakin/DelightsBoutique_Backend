@@ -13,5 +13,10 @@ public class GetProductsQueryValidator : AbstractValidator<GetProductsQuery>
         RuleFor(x => x.Limit).InclusiveBetween(1, 100);
         RuleFor(x => x.Sort).Must(s => s is null || AllowedSorts.Contains(s))
             .WithMessage($"Sort must be one of: {string.Join(", ", AllowedSorts)}.");
+        RuleFor(x => x.MinPrice).GreaterThanOrEqualTo(0).When(x => x.MinPrice is not null);
+        RuleFor(x => x.MaxPrice).GreaterThanOrEqualTo(0).When(x => x.MaxPrice is not null);
+        // Deliberately no "MaxPrice >= MinPrice" rule — an inverted range just yields an
+        // empty page naturally (same WHERE clause either way), matching the "unknown/edge
+        // filter values return an empty page, not an error" rule the frontend asked for.
     }
 }

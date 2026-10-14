@@ -66,8 +66,12 @@ public class EfCustomerRepository(AppDbContext db) : ICustomerRepository
                 x.Phone.Contains(search, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (filter.WholesaleOnly == true)
+        // CustomerType wins when both are given — see CustomerSearchFilter's own comment.
+        var effectiveType = filter.CustomerType ?? (filter.WholesaleOnly == true ? CustomerType.Wholesale : (CustomerType?)null);
+        if (effectiveType == CustomerType.Wholesale)
             query = query.Where(x => x.Wholesale);
+        else if (effectiveType == CustomerType.Retail)
+            query = query.Where(x => !x.Wholesale);
 
         var ordered = query.OrderByDescending(x => x.LastOrderAt).ThenBy(x => x.Phone).ToList(); // ThenBy stabilizes paging across ties
         var total = ordered.Count;
@@ -79,5 +83,20 @@ public class EfCustomerRepository(AppDbContext db) : ICustomerRepository
             .ToList();
 
         return new PagedResult<CustomerDto>(data, filter.Page, filter.Limit, total);
+    }
+
+    public async Task<CustomerCountsDto> GetCountsAsync(string? search, CancellationToken ct)
+    {
+        var all = await BaseQuery().ToListAsync(ct);
+
+        IEnumerable<CustomerRow> query = all;
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(x =>
+                x.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                x.Phone.Contains(search, StringComparison.OrdinalIgnoreCase));
+
+        var matching = query.ToList();
+        var wholesaleCount = matching.Count(x => x.Wholesale);
+        return new CustomerCountsDto(matching.Count, matching.Count - wholesaleCount, wholesaleCount);
     }
 }

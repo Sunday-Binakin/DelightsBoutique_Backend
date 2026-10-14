@@ -74,6 +74,7 @@ builder.Services.AddScoped<IOrderNotificationRepository, EfOrderNotificationRepo
 builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<IProductCsvParser, ProductCsvParser>();
+builder.Services.AddScoped<INewsletterRepository, EfNewsletterRepository>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
@@ -83,11 +84,16 @@ builder.Services.AddSingleton<IPhoneNormalizer, PhoneNormalizer>();
 builder.Services.AddSingleton<IOrderIdGenerator, OrderIdGenerator>();
 builder.Services.AddSingleton<IOrderPricingService, OrderPricingService>(); // stateless, safe as singleton
 builder.Services.AddScoped<IImageValidator, ImageSharpImageValidator>();
+builder.Services.AddScoped<IImageProcessor, ImageSharpImageProcessor>();
 builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
 
 // --- MediatR + idempotency/validation/audit pipeline ---
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(LoginCommand).Assembly));
 builder.Services.AddValidatorsFromAssembly(typeof(LoginCommand).Assembly);
+// Field names appear both as the "fields" key and inside messages ("'email' is not a valid
+// email address."), so both must use the same camelCase form the API uses everywhere else.
+ValidatorOptions.Global.PropertyNameResolver = (_, member, _) => member is null ? null : ExceptionHandlingMiddleware.ToCamelCase(member.Name);
+ValidatorOptions.Global.DisplayNameResolver = (_, member, _) => member is null ? null : ExceptionHandlingMiddleware.ToCamelCase(member.Name);
 // IdempotencyBehavior registered FIRST (outermost) — same key + different body must 409
 // regardless of whether the body would even pass validation; same key + same body must
 // replay the cached response without re-running validation or the handler at all.
@@ -101,6 +107,7 @@ builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<IPasswordGenerator, PasswordGenerator>();
 builder.Services.AddScoped<IOtpChallengeStore, EfOtpChallengeStore>();
 builder.Services.AddScoped<IOtpEmailSender, GmailSmtpOtpEmailSender>();
+builder.Services.AddSingleton<IRuntimeEnvironment>(new RuntimeEnvironmentInfo(builder.Environment.IsDevelopment()));
 
 // --- Notifications: composite email+WhatsApp, delivered via a background queue so a slow
 // provider never adds latency to the request that triggered the notification. ---
@@ -127,35 +134,51 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-builder.Services.AddAuthorization(options =>
-    options.AddPolicy("OwnerOnly", p => p.RequireClaim("role", "Owner")));
+builder.Services.AddAuthorization();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 // --- Rate limiting ---
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("auth-login", o =>
-    {
-        o.Window = TimeSpan.FromMinutes(1);
-        o.PermitLimit = 5;
-    });
-    options.AddFixedWindowLimiter("auth-resend-otp", o =>
-    {
-        o.Window = TimeSpan.FromMinutes(1);
-        o.PermitLimit = 3;
-    });
+    // Production keeps these as one global bucket (BUILD_SPEC's behavior). In Development they
+    // partition by client IP, so one developer's test run doesn't lock every other
+    // developer on the same local server out of logging in.
+    // Integration tests share one host per class and would otherwise exhaust these in a single
+    // run; no rate-limit test exists, so lifting them under "Testing" only changes test speed.
+    int permitLimitForEnvironment(int productionLimit) =>
+        builder.Environment.IsEnvironment("Testing") ? int.MaxValue : productionLimit;
+
+    void AddAuthLimit(string policyName, int permitLimit) => options.AddPolicy(policyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: builder.Environment.IsDevelopment()
+                ? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"
+                : "global",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = permitLimitForEnvironment(permitLimit)
+            }));
+
+    AddAuthLimit("auth-login", 5);
+    AddAuthLimit("auth-resend-otp", 3);
 
     // Orders endpoints — BUILD_SPEC explicitly says "rate-limited by IP," unlike the
     // global, non-partitioned auth-* policies above, so these use real per-IP partitioning.
     options.AddPolicy("order-create", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 10 }));
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = permitLimitForEnvironment(10) }));
     options.AddPolicy("order-track", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 20 }));
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = permitLimitForEnvironment(20) }));
     options.AddPolicy("order-payment-proof", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 10 }));
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = permitLimitForEnvironment(10) }));
+
+    // Not in BUILD_SPEC's original four — added per-IP to stop a spam bot from hammering
+    // the public subscribe endpoint, same partitioning style and limit as order-create.
+    options.AddPolicy("newsletter-subscribe", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = permitLimitForEnvironment(10) }));
 
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
@@ -183,6 +206,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    // Strictly Development-only, never Staging/Production — gives local frontend
+    // integration a known staff login and a non-empty catalog out of the box.
+    using var devSeedScope = app.Services.CreateScope();
+    await DevSeeder.SeedAsync(devSeedScope.ServiceProvider);
 }
 
 var configuredFileStorageRoot = app.Configuration["FileStorage:RootPath"] ?? Path.Combine("App_Data", "uploads");
@@ -201,9 +229,12 @@ app.UseCors("Storefront");
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(fileStorageRoot),
-    RequestPath = "/files"
+    RequestPath = "/files",
+    // Stored names are GUIDs and never reused, so a served file can't change under its URL.
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable"
 });
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseMiddleware<UploadSizeGuardMiddleware>();
 app.UseRateLimiter();
 app.UseMiddleware<CsrfHeaderMiddleware>();
 app.UseAuthentication();

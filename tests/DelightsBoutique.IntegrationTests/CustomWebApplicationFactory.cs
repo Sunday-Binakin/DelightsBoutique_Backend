@@ -22,6 +22,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     public const string ManageContentStaffEmail = "staff-manage-content@test.local";
     public const string ManageCustomersStaffEmail = "staff-manage-customers@test.local";
     public const string ViewReportsStaffEmail = "staff-view-reports@test.local";
+    public const string ManageStaffAndAuditStaffEmail = "staff-manage-staff@test.local";
     public const string KnownPassword = "Password123!";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
@@ -53,12 +54,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         db.StaffMembers.Add(StaffMember.ForTesting(ManageContentStaffEmail, passwordHash, active: true, [Permission.ManageContent]));
         db.StaffMembers.Add(StaffMember.ForTesting(ManageCustomersStaffEmail, passwordHash, active: true, [Permission.ManageCustomers]));
         db.StaffMembers.Add(StaffMember.ForTesting(ViewReportsStaffEmail, passwordHash, active: true, [Permission.ViewReports]));
+        db.StaffMembers.Add(StaffMember.ForTesting(ManageStaffAndAuditStaffEmail, passwordHash, active: true, [Permission.ManageStaff, Permission.ViewAuditLog]));
         await db.SaveChangesAsync();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing"); // so the Development-only OwnerSeeder does NOT run
+        builder.UseEnvironment("Testing"); // so OwnerSeeder/ContentSeeder do NOT run — this harness seeds its own fixed test data below instead
 
         builder.ConfigureAppConfiguration((_, config) =>
         {

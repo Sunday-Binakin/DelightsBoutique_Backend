@@ -77,4 +77,40 @@ public class AdminProductsBulkUploadTests(CustomWebApplicationFactory factory) :
         body.GetProperty("errorCount").GetInt32().Should().Be(1);
         body.GetProperty("rows")[0].GetProperty("error").GetString().Should().Contain(existingSlug);
     }
+
+    [Fact]
+    public async Task BulkUpload_OversizedFile_Returns400WithStandardEnvelope_NotRawProblemDetails()
+    {
+        // Mirrors AdminUploadsControllerTests' oversized-file case: the hard Kestrel
+        // ceiling (4MB) sits above the 2MB this endpoint actually enforces, so a
+        // realistically-oversized file reaches the explicit check and gets the standard
+        // envelope instead of a raw ProblemDetails body.
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var oversized = new byte[3 * 1024 * 1024];
+
+        var response = await client.PostMultipartAsync("/api/admin/products/bulk-upload", oversized, fileName: "big.csv", contentType: "text/csv");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("error").GetProperty("code").GetString().Should().Be("VALIDATION_ERROR");
+        body.GetProperty("error").GetProperty("fields").GetProperty("file").GetString().Should().Contain("2MB");
+    }
+
+    [Fact]
+    public async Task BulkUpload_ExceedsMaxRowCount_Returns400_NoRowsPersisted()
+    {
+        var admin = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ManageProductsStaffEmail);
+        var categorySlug = $"bulk-cat3-{Guid.NewGuid():N}"[..20];
+        await admin.PostAsync("/api/admin/categories", new { slug = categorySlug, name = "Bulk Upload Category 3", tone = "Rose" });
+
+        var csv = new StringBuilder().AppendLine(Header);
+        for (var i = 0; i < 1001; i++)
+            csv.AppendLine($"too-many-rows-{Guid.NewGuid():N},Product {i},{categorySlug},desc,10,,,,Rose,,InStock,,,");
+
+        var response = await admin.PostMultipartAsync("/api/admin/products/bulk-upload", Encoding.UTF8.GetBytes(csv.ToString()), fileName: "products.csv", contentType: "text/csv");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        body.GetProperty("error").GetProperty("fields").GetProperty("file").GetString().Should().Contain("1000");
+    }
 }

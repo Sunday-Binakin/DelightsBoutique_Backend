@@ -96,4 +96,68 @@ public class ReportsControllerTests(CustomWebApplicationFactory factory) : IClas
         var topProducts = body.GetProperty("topProducts").EnumerateArray().ToList();
         topProducts.Should().Contain(p => p.GetProperty("slug").GetString() == slug);
     }
+
+    [Fact]
+    public async Task Get_TopProducts_IncludesCategory()
+    {
+        var slug = await OrdersTestHelper.CreateTestProductAsync(factory, retailPrice: 50m);
+        await CreateOrderAsync(slug);
+
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ViewReportsStaffEmail);
+        var response = await client.GetAsync("/api/admin/reports");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var topProducts = body.GetProperty("topProducts").EnumerateArray().ToList();
+        topProducts.Should().Contain(p => p.GetProperty("slug").GetString() == slug && p.GetProperty("category").GetString() == "Orders Test Category");
+    }
+
+    [Fact]
+    public async Task Get_PendingAndCancelledAmounts_ReflectActualSubtotals()
+    {
+        var slug = await OrdersTestHelper.CreateTestProductAsync(factory, retailPrice: 40m);
+        await CreateOrderAsync(slug); // stays PendingConfirmation
+        var cancelledOrderId = await CreateOrderAsync(slug);
+        await CancelOrderAsync(cancelledOrderId);
+
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ViewReportsStaffEmail);
+        var response = await client.GetAsync("/api/admin/reports");
+
+        var summary = (await TestAuthHelper.ReadJsonAsync(response)).GetProperty("summary");
+        summary.GetProperty("pendingAmount").GetDecimal().Should().BeGreaterThanOrEqualTo(40m);
+        summary.GetProperty("cancelledAmount").GetDecimal().Should().BeGreaterThanOrEqualTo(40m);
+    }
+
+    [Fact]
+    public async Task Get_StatusAndPaymentBreakdown_IncludeRevenuePerGroup()
+    {
+        var slug = await OrdersTestHelper.CreateTestProductAsync(factory, retailPrice: 60m);
+        await CreateOrderAsync(slug);
+
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ViewReportsStaffEmail);
+        var response = await client.GetAsync("/api/admin/reports");
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var statusBreakdown = body.GetProperty("statusBreakdown").EnumerateArray().ToList();
+        statusBreakdown.Should().Contain(e => e.GetProperty("status").GetString() == "pendingConfirmation" && e.GetProperty("revenue").GetDecimal() >= 60m);
+
+        var paymentBreakdown = body.GetProperty("paymentBreakdown").EnumerateArray().ToList();
+        paymentBreakdown.Should().Contain(e => e.GetProperty("paymentMethod").GetString() == "cashOnDeliveryOrPickup" && e.GetProperty("revenue").GetDecimal() >= 60m);
+    }
+
+    [Fact]
+    public async Task Get_DailySeries_IncludesTodayWithOrderCountAndRevenue_ExcludingCancelled()
+    {
+        var slug = await OrdersTestHelper.CreateTestProductAsync(factory, retailPrice: 70m);
+        await CreateOrderAsync(slug);
+        var cancelledOrderId = await CreateOrderAsync(slug);
+        await CancelOrderAsync(cancelledOrderId);
+
+        var client = await TestAuthHelper.LoginAsAsync(factory, CustomWebApplicationFactory.ViewReportsStaffEmail);
+        var today = DateTime.UtcNow.Date.ToString("yyyy-MM-dd");
+        var response = await client.GetAsync("/api/admin/reports"); // unscoped — a date-range 'to' would exclude orders created later today
+
+        var body = await TestAuthHelper.ReadJsonAsync(response);
+        var dailySeries = body.GetProperty("dailySeries").EnumerateArray().ToList();
+        dailySeries.Should().Contain(d => d.GetProperty("date").GetString() == today && d.GetProperty("revenue").GetDecimal() >= 70m);
+    }
 }

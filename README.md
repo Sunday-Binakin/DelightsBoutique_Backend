@@ -58,19 +58,14 @@ even an explicit full path to the outer `dotnet` call isn't enough on its own.)
 
 ## Email (OTP login)
 
-OTP codes are sent via [Resend](https://resend.com). Store the API key in user-secrets:
+OTP codes and order notifications are sent via Gmail SMTP (MailKit, smtp.gmail.com:587,
+STARTTLS). Store the sending account's credentials in user-secrets — use a Gmail
+[App Password](https://myaccount.google.com/apppasswords), never the account password:
 
 ```powershell
-dotnet user-secrets set "Resend:ApiKey" "<your key>" --project src/DelightsBoutique.Api
-dotnet user-secrets set "Resend:FromAddress" "onboarding@resend.dev" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Gmail:Email" "<sending gmail address>" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Gmail:AppPassword" "<app password>" --project src/DelightsBoutique.Api
 ```
-
-**Known Development limitation:** until a real domain is verified in Resend, the sandbox
-sender (`onboarding@resend.dev`) can only deliver to the Resend account's *own* verified
-email address — not to an arbitrary seeded owner/staff email. Logging in with an account
-whose email doesn't match will fail at the email-send step with a 500. A longer-term switch
-to Gmail SMTP as the email provider has been decided but is **not yet implemented** — see
-the comment at the `IResend`/`ResendOtpEmailSender` registration in `Program.cs`.
 
 ## Running
 
