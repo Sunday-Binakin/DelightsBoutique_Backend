@@ -67,6 +67,26 @@ dotnet user-secrets set "Gmail:Email" "<sending gmail address>" --project src/De
 dotnet user-secrets set "Gmail:AppPassword" "<app password>" --project src/DelightsBoutique.Api
 ```
 
+## File storage (product images, payment proofs)
+
+Local development defaults to `LocalFileStorage` (disk, under `App_Data/uploads`) — no setup
+needed. Staging/Production use `SpacesFileStorage` (DigitalOcean Spaces, S3-compatible object
+storage) instead, since a hosted container's local disk doesn't survive redeploys. Switched via
+config, not code — `FileStorage:Provider` set to `"Spaces"` in `appsettings.Staging.json` /
+`appsettings.Production.json`. To point a Spaces-backed environment at a real Space, set:
+
+```powershell
+dotnet user-secrets set "Spaces:Endpoint" "https://<region>.digitaloceanspaces.com" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Spaces:Bucket" "<your space name>" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Spaces:AccessKey" "<access key>" --project src/DelightsBoutique.Api
+dotnet user-secrets set "Spaces:SecretKey" "<secret key>" --project src/DelightsBoutique.Api
+```
+
+(In Staging/Production these are real environment variables, not user-secrets — see the
+deployment notes for exact names.) Uploaded files are stored with a public-read ACL and served
+directly from Spaces' own URL; `Spaces:PublicBaseUrl` can override that with a custom domain or
+DO's CDN-fronted Spaces endpoint instead.
+
 ## Running
 
 ```powershell
