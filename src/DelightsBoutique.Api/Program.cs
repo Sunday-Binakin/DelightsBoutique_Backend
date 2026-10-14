@@ -85,7 +85,12 @@ builder.Services.AddSingleton<IOrderIdGenerator, OrderIdGenerator>();
 builder.Services.AddSingleton<IOrderPricingService, OrderPricingService>(); // stateless, safe as singleton
 builder.Services.AddScoped<IImageValidator, ImageSharpImageValidator>();
 builder.Services.AddScoped<IImageProcessor, ImageSharpImageProcessor>();
-builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
+// "Spaces" (DigitalOcean Spaces, durable) in Staging/Production; defaults to local disk for
+// day-to-day development, where nobody wants to configure real object storage credentials.
+if (string.Equals(builder.Configuration["FileStorage:Provider"], "Spaces", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddScoped<IFileStorage, SpacesFileStorage>();
+else
+    builder.Services.AddScoped<IFileStorage, LocalFileStorage>();
 
 // --- MediatR + idempotency/validation/audit pipeline ---
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(LoginCommand).Assembly));
