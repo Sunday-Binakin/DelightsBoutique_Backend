@@ -130,7 +130,13 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.Name = "db_admin_session";
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-        options.Cookie.SameSite = SameSiteMode.Lax;
+        // Lax blocks the cookie on cross-site fetch/XHR (only same-site or top-level
+        // navigations get it) — fine when frontend and API shared a site, but the
+        // deployed API is a different registrable domain from the frontend's origin
+        // (including localhost during dev), so the session cookie never came back on
+        // any call after verify-otp. None (paired with Secure, set above) is required
+        // for a cross-site cookie to be sent on those requests at all.
+        options.Cookie.SameSite = SameSiteMode.None;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
         options.SlidingExpiration = true;
         // This is an API, not a page app — never redirect, just return the status code.
