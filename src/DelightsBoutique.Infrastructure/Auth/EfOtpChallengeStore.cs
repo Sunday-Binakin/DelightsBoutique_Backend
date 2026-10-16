@@ -3,10 +3,11 @@ using DelightsBoutique.Application.Abstractions;
 using DelightsBoutique.Application.Common;
 using DelightsBoutique.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DelightsBoutique.Infrastructure.Auth;
 
-public class EfOtpChallengeStore(AppDbContext db, IPasswordHasher passwordHasher, IClock clock) : IOtpChallengeStore
+public class EfOtpChallengeStore(AppDbContext db, IPasswordHasher passwordHasher, IClock clock, ILogger<EfOtpChallengeStore> logger) : IOtpChallengeStore
 {
     private const int CodeExpiryMinutes = 10;
     private const int MaxAttempts = 5;
@@ -36,13 +37,35 @@ public class EfOtpChallengeStore(AppDbContext db, IPasswordHasher passwordHasher
     {
         var challenge = await db.OtpChallenges.FirstOrDefaultAsync(c => c.LoginToken == loginToken, ct);
 
-        if (challenge is null || challenge.ConsumedAt is not null || challenge.ExpiresAt <= clock.UtcNow || challenge.AttemptCount >= MaxAttempts)
+        if (challenge is null)
+        {
+            logger.LogWarning("OTP verify rejected: no challenge found for login token {LoginToken}", loginToken);
             return (OtpVerifyOutcome.InvalidOrExpired, null);
+        }
+
+        if (challenge.ConsumedAt is not null)
+        {
+            logger.LogWarning("OTP verify rejected: challenge {ChallengeId} already consumed at {ConsumedAt}", challenge.Id, challenge.ConsumedAt);
+            return (OtpVerifyOutcome.InvalidOrExpired, null);
+        }
+
+        if (challenge.ExpiresAt <= clock.UtcNow)
+        {
+            logger.LogWarning("OTP verify rejected: challenge {ChallengeId} expired at {ExpiresAt}, now {Now}", challenge.Id, challenge.ExpiresAt, clock.UtcNow);
+            return (OtpVerifyOutcome.InvalidOrExpired, null);
+        }
+
+        if (challenge.AttemptCount >= MaxAttempts)
+        {
+            logger.LogWarning("OTP verify rejected: challenge {ChallengeId} locked out after {AttemptCount} attempts", challenge.Id, challenge.AttemptCount);
+            return (OtpVerifyOutcome.InvalidOrExpired, null);
+        }
 
         if (!passwordHasher.Verify(code, challenge.HashedCode))
         {
             challenge.AttemptCount++;
             await db.SaveChangesAsync(ct);
+            logger.LogWarning("OTP verify rejected: code mismatch for challenge {ChallengeId}, attempt {AttemptCount}", challenge.Id, challenge.AttemptCount);
             return (OtpVerifyOutcome.InvalidOrExpired, null);
         }
 
