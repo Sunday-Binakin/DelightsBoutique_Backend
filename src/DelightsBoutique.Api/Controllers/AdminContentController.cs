@@ -65,4 +65,8 @@ public class AdminContentController(IMediator mediator) : ControllerBase
         var deleted = await mediator.Send(new DeleteFaqCommand(id), ct);
         return deleted ? NoContent() : NotFound();
     }
+
+    [HttpPatch("theme")]
+    public async Task<IActionResult> UpdateTheme(UpdateThemeCommand command, CancellationToken ct) =>
+        Ok(await mediator.Send(command, ct));
 }

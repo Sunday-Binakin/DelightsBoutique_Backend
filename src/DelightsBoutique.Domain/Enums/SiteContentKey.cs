@@ -7,5 +7,6 @@ public enum SiteContentKey
     FlashSale,
     CollectionSection,
     StorefrontCopy,
-    PagesContent
+    PagesContent,
+    Theme
 }

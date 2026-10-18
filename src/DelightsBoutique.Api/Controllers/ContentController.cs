@@ -32,4 +32,7 @@ public class ContentController(IMediator mediator) : ControllerBase
 
     [HttpGet("faqs")]
     public async Task<IActionResult> GetFaqs(CancellationToken ct) => Ok(await mediator.Send(new GetFaqsQuery(), ct));
+
+    [HttpGet("theme")]
+    public async Task<IActionResult> GetTheme(CancellationToken ct) => Ok(await mediator.Send(new GetThemeQuery(), ct));
 }

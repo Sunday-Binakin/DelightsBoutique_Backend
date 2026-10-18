@@ -19,7 +19,7 @@ public class AdminStaffController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> List(CancellationToken ct)
     {
         var members = await mediator.Send(new GetStaffQuery(), ct);
-        return Ok(new { data = members });
+        return Ok(members);
     }
 
     [HttpPost]
