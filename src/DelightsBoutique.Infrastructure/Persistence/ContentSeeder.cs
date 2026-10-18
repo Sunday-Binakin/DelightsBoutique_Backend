@@ -73,6 +73,9 @@ public static class ContentSeeder
             Privacy: new PageContentDto("Privacy Policy", "We only use your contact information to process and fulfill your order."),
             Faqs: []),
             ContentJsonOptions.Default));
+
+        yield return (SiteContentKey.Theme, JsonSerializer.Serialize(
+            new ThemeDto(Primary: "#0550c2", Accent: "#ff7101"), ContentJsonOptions.Default));
     }
 
     private static BannerDto DefaultBanner(string eyebrow, string title, string ctaLabel, string href) =>
