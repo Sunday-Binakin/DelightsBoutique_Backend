@@ -43,7 +43,19 @@ public class SpacesFileStorage : IFileStorage
 
         s3Client = new AmazonS3Client(
             new BasicAWSCredentials(accessKey, secretKey),
-            new AmazonS3Config { ServiceURL = serviceUrl });
+            new AmazonS3Config
+            {
+                ServiceURL = serviceUrl,
+                // AWSSDK.S3 v4 defaults both of these to WHEN_SUPPORTED, which adds an
+                // x-amz-checksum-* trailer to every PutObject. DigitalOcean Spaces (and most
+                // other S3-compatible stores) doesn't support that trailer and returns a
+                // response the SDK can't parse as a normal S3 error — surfacing here as an
+                // AmazonS3Exception with an empty message wrapping a bare
+                // HttpErrorResponseException. WHEN_REQUIRED restores the pre-v4 behavior
+                // (checksums only where the S3 spec mandates them), which Spaces handles fine.
+                RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+                ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
+            });
     }
 
     public async Task<string> SaveAsync(Stream content, string folder, string fileExtension, CancellationToken ct)
